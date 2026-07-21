@@ -50,7 +50,7 @@ async function sendEmail(payload) {
 
 export const emailService = {
   async sendVerificationEmail(to, name, token) {
-    const verifyUrl = `${env.CLIENT_URL}/verify-email?token=${token}`
+    const verifyUrl = `${env.PUBLIC_SITE_URL}/verify-email?token=${token}`
     await sendEmail({
       to,
       subject: 'Verify your Check A Review account',
@@ -64,7 +64,7 @@ export const emailService = {
   },
 
   async sendPasswordResetEmail(to, token) {
-    const resetUrl = `${env.CLIENT_URL}/reset-password?token=${token}`
+    const resetUrl = `${env.PUBLIC_SITE_URL}/reset-password?token=${token}`
     await sendEmail({
       to,
       subject: 'Reset your password',

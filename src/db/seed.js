@@ -2,9 +2,17 @@ import bcrypt from 'bcryptjs'
 import { pool, query } from './pool.js'
 import { env } from '../config/env.js'
 import { slugify } from '../utils/helpers.js'
+import { categoryService } from '../services/category.service.js'
 
 async function seed() {
   console.log('Seeding database...')
+
+  const categorySeed = await categoryService.seedDefaultCategories()
+  if (categorySeed.mainsCreated > 0 || categorySeed.subsCreated > 0) {
+    console.log(
+      `Categories seeded: ${categorySeed.mainsCreated} main, ${categorySeed.subsCreated} subcategories`,
+    )
+  }
 
   const adminExists = await query('SELECT id FROM users WHERE email = $1', [env.ADMIN_EMAIL])
   if (adminExists.rows.length === 0) {
@@ -18,9 +26,9 @@ async function seed() {
   }
 
   const sampleBusinesses = [
-    { name: 'Tech Solutions Inc', category: 'Technology', description: 'Leading technology solutions provider.' },
-    { name: 'Green Cafe', category: 'Food & Drink', description: 'Organic coffee and healthy meals.' },
-    { name: 'FitLife Gym', category: 'Health & Fitness', description: 'Premium fitness center with personal training.' },
+    { name: 'Tech Solutions Inc', category: 'Internet & Software', description: 'Leading technology solutions provider.' },
+    { name: 'Green Cafe', category: 'Coffee & Tea', description: 'Organic coffee and healthy meals.' },
+    { name: 'FitLife Gym', category: 'Wellness & Spa', description: 'Premium fitness center with personal training.' },
   ]
 
   for (const biz of sampleBusinesses) {

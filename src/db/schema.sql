@@ -135,11 +135,31 @@ CREATE TABLE IF NOT EXISTS website_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Business category hierarchy
+CREATE TABLE IF NOT EXISTS main_categories (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(150) UNIQUE NOT NULL,
+  slug VARCHAR(180) UNIQUE NOT NULL,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sub_categories (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  main_category_id UUID NOT NULL REFERENCES main_categories(id) ON DELETE CASCADE,
+  name VARCHAR(150) NOT NULL,
+  slug VARCHAR(180) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (main_category_id, name),
+  UNIQUE (slug)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON businesses(slug);
 CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses(category);
+CREATE INDEX IF NOT EXISTS idx_sub_categories_main_category_id ON sub_categories(main_category_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_business_id ON reviews(business_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);

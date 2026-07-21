@@ -1,4 +1,7 @@
+import bcrypt from 'bcryptjs'
 import { query } from '../db/pool.js'
+import { AppError, slugify } from '../utils/helpers.js'
+import { categoryService } from './category.service.js'
 
 export const adminService = {
   async getDashboardStats() {
@@ -37,6 +40,95 @@ export const adminService = {
        ORDER BY b.created_at DESC`,
     )
     return result.rows
+  },
+
+  async getCategories() {
+    return categoryService.getCategoryTree()
+  },
+
+  async createMainCategory(name) {
+    return categoryService.createMainCategory(name)
+  },
+
+  async createSubCategory(mainCategoryId, name) {
+    return categoryService.createSubCategory(mainCategoryId, name)
+  },
+
+  async updateMainCategory(id, name) {
+    return categoryService.updateMainCategory(id, name)
+  },
+
+  async updateSubCategory(id, data) {
+    return categoryService.updateSubCategory(id, data)
+  },
+
+  async deleteMainCategory(id) {
+    return categoryService.deleteMainCategory(id)
+  },
+
+  async deleteSubCategory(id) {
+    return categoryService.deleteSubCategory(id)
+  },
+
+  async seedCategories() {
+    return categoryService.seedDefaultCategories()
+  },
+
+  async createBusiness(data) {
+    const {
+      name,
+      email,
+      password,
+      category,
+      description = null,
+      website = null,
+      phone = null,
+      address = null,
+    } = data
+
+    const emailLower = String(email).toLowerCase()
+    const slug = slugify(name)
+
+    const existingUser = await query('SELECT id FROM users WHERE email = $1', [emailLower])
+    if (existingUser.rows.length > 0) {
+      throw new AppError('Email already registered', 409)
+    }
+
+    const existingSlug = await query('SELECT id FROM businesses WHERE slug = $1', [slug])
+    if (existingSlug.rows.length > 0) {
+      throw new AppError('Business name already exists. Please use a different name.', 409)
+    }
+
+    const validatedCategory = await categoryService.validateSubcategoryName(category)
+
+    const passwordHash = await bcrypt.hash(password, 12)
+    const userResult = await query(
+      `INSERT INTO users (email, password_hash, name, role, email_verified)
+       VALUES ($1, $2, $3, 'business', TRUE)
+       RETURNING id`,
+      [emailLower, passwordHash, name],
+    )
+
+    const businessResult = await query(
+      `INSERT INTO businesses (user_id, name, slug, category, description, website, email, phone, address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [userResult.rows[0].id, name, slug, validatedCategory, description, website, emailLower, phone, address],
+    )
+
+    const businessId = businessResult.rows[0].id
+    await query(`INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'free')`, [businessId])
+
+    const result = await query(
+      `SELECT b.*, s.plan, u.email as owner_email
+       FROM businesses b
+       LEFT JOIN subscriptions s ON s.business_id = b.id
+       LEFT JOIN users u ON u.id = b.user_id
+       WHERE b.id = $1`,
+      [businessId],
+    )
+
+    return result.rows[0]
   },
 
   async getAllReviews() {

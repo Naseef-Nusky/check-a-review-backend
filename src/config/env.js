@@ -5,8 +5,11 @@ dotenv.config()
 export const env = {
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
-  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173,http://localhost:5174',
+  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173,http://localhost:5174,http://localhost:5175',
+  BUSINESS_PORTAL_URL: process.env.BUSINESS_PORTAL_URL || 'http://localhost:5175',
+  PUBLIC_SITE_URL: process.env.PUBLIC_SITE_URL || 'http://localhost:5173',
   DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/check_a_review',
+  DATABASE_SSL: process.env.DATABASE_SSL || 'false',
   JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
   EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'sendgrid',

@@ -36,6 +36,144 @@ router.get('/businesses', async (_req, res, next) => {
   }
 })
 
+router.get('/categories', async (_req, res, next) => {
+  try {
+    const categories = await adminService.getCategories()
+    res.json({ success: true, data: categories })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post(
+  '/categories/main',
+  [body('name').trim().notEmpty().withMessage('Main category name is required')],
+  validate,
+  async (req, res, next) => {
+    try {
+      const category = await adminService.createMainCategory(req.body.name)
+      res.json({ success: true, data: category })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/categories/sub',
+  [
+    body('mainCategoryId').notEmpty().withMessage('Main category is required'),
+    body('name').trim().notEmpty().withMessage('Subcategory name is required'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const category = await adminService.createSubCategory(req.body.mainCategoryId, req.body.name)
+      res.json({ success: true, data: category })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.patch(
+  '/categories/main/:id',
+  [body('name').trim().notEmpty().withMessage('Main category name is required')],
+  validate,
+  async (req, res, next) => {
+    try {
+      const category = await adminService.updateMainCategory(req.params.id, req.body.name)
+      res.json({ success: true, data: category })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.patch(
+  '/categories/sub/:id',
+  [
+    body('name').optional().trim().notEmpty().withMessage('Subcategory name is required'),
+    body('mainCategoryId').optional().notEmpty().withMessage('Main category is required'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const category = await adminService.updateSubCategory(req.params.id, {
+        name: req.body.name,
+        mainCategoryId: req.body.mainCategoryId,
+      })
+      res.json({ success: true, data: category })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.delete('/categories/main/:id', async (req, res, next) => {
+  try {
+    const result = await adminService.deleteMainCategory(req.params.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/categories/sub/:id', async (req, res, next) => {
+  try {
+    const result = await adminService.deleteSubCategory(req.params.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/categories/seed', async (_req, res, next) => {
+  try {
+    const result = await adminService.seedCategories()
+    const categories = await adminService.getCategories()
+    res.json({ success: true, data: { ...result, categories } })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post(
+  '/categories',
+  [body('name').trim().notEmpty().withMessage('Category name is required')],
+  validate,
+  async (req, res, next) => {
+    try {
+      const category = await adminService.createMainCategory(req.body.name)
+      res.json({ success: true, data: category })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/businesses',
+  [
+    body('name').trim().notEmpty().withMessage('Business name is required'),
+    body('email').isEmail().withMessage('Owner email must be valid'),
+    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('category').trim().notEmpty().withMessage('Category is required'),
+    body('website').optional({ nullable: true }).isString().withMessage('Website must be a string'),
+    body('phone').optional({ nullable: true }).isString().withMessage('Phone must be a string'),
+    body('description').optional({ nullable: true }).isString().withMessage('Description must be a string'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const business = await adminService.createBusiness(req.body)
+      res.json({ success: true, data: business })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.get('/reviews', async (_req, res, next) => {
   try {
     const reviews = await adminService.getAllReviews()

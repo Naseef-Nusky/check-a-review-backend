@@ -33,8 +33,8 @@ export const subscriptionService = {
       customerId,
       plan,
       businessId,
-      successUrl: `${env.CLIENT_URL}/business-portal/subscription?success=true`,
-      cancelUrl: `${env.CLIENT_URL}/business-portal/subscription?cancelled=true`,
+      successUrl: `${env.BUSINESS_PORTAL_URL}/?checkout=success`,
+      cancelUrl: `${env.BUSINESS_PORTAL_URL}/?checkout=cancelled`,
     })
 
     return { sessionId: session.id, url: session.url }
@@ -49,7 +49,7 @@ export const subscriptionService = {
 
     const session = await stripeService.createPortalSession(
       sub.stripe_customer_id,
-      `${env.CLIENT_URL}/business-portal/subscription`,
+      `${env.BUSINESS_PORTAL_URL}/`,
     )
     return { url: session.url }
   },

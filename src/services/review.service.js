@@ -90,7 +90,9 @@ export const reviewService = {
   async getLatest(queryParams) {
     const { page, limit, offset } = paginate(queryParams)
     const result = await query(
-      `SELECT r.*, u.name as author_name, b.name as business_name, b.slug as business_slug
+      `SELECT r.*, u.name as author_name,
+              b.id as business_id, b.name as business_name, b.slug as business_slug,
+              b.category as business_category, b.website as business_website, b.logo_url as business_logo
        FROM reviews r
        JOIN users u ON u.id = r.user_id
        JOIN businesses b ON b.id = r.business_id

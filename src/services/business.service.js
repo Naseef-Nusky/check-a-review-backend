@@ -1,5 +1,6 @@
 import { query } from '../db/pool.js'
 import { AppError, slugify, paginate } from '../utils/helpers.js'
+import { categoryService } from './category.service.js'
 
 async function updateBusinessStats(businessId) {
   await query(
@@ -63,10 +64,7 @@ export const businessService = {
   },
 
   async getCategories() {
-    const result = await query(
-      `SELECT category, COUNT(*) as count FROM businesses GROUP BY category ORDER BY count DESC`,
-    )
-    return result.rows
+    return categoryService.getCategoryTree()
   },
 
   async getByUserId(userId) {
@@ -78,6 +76,11 @@ export const businessService = {
   async update(businessId, userId, data) {
     const owner = await query('SELECT id FROM businesses WHERE id = $1 AND user_id = $2', [businessId, userId])
     if (owner.rows.length === 0) throw new AppError('Business not found or access denied', 403)
+
+    let category = data.category
+    if (category) {
+      category = await categoryService.validateSubcategoryName(category)
+    }
 
     const result = await query(
       `UPDATE businesses SET
@@ -93,7 +96,7 @@ export const businessService = {
        WHERE id = $9 RETURNING *`,
       [
         data.name,
-        data.category,
+        category,
         data.description,
         data.website,
         data.email,

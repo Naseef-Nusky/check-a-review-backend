@@ -15,7 +15,7 @@ function signToken(user) {
 }
 
 export const authService = {
-  async register({ email, password, name, role }) {
+  async register({ email, password, name, role, category, website, phone, description }) {
     const existing = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()])
     if (existing.rows.length > 0) {
       throw new AppError('Email already registered', 409)
@@ -39,11 +39,26 @@ export const authService = {
     await emailService.sendVerificationEmail(user.email, user.name, verifyToken)
 
     if (role === 'business') {
+      let businessCategory = 'General'
+      if (category) {
+        const { categoryService } = await import('./category.service.js')
+        businessCategory = await categoryService.validateSubcategoryName(category)
+      }
+
       const businessSlug = slugify(name)
       const bizResult = await query(
-        `INSERT INTO businesses (user_id, name, slug, category, email)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [user.id, name, businessSlug, 'General', email.toLowerCase()],
+        `INSERT INTO businesses (user_id, name, slug, category, email, website, phone, description)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [
+          user.id,
+          name,
+          businessSlug,
+          businessCategory,
+          email.toLowerCase(),
+          website || null,
+          phone || null,
+          description || null,
+        ],
       )
       await query(
         `INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'free')`,
