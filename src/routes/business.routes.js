@@ -1,9 +1,9 @@
 import { Router } from 'express'
-import { body } from 'express-validator'
-import { validate } from '../middleware/validate.js'
 import { authenticate, authorize } from '../middleware/auth.js'
+import { validate } from '../middleware/validate.js'
 import { businessService } from '../services/business.service.js'
-import { paginate } from '../utils/helpers.js'
+import { paginate, AppError } from '../utils/helpers.js'
+import { buildLogoPublicPath, logoUpload } from '../middleware/upload.js'
 
 const router = Router()
 
@@ -32,6 +32,15 @@ router.get('/categories', async (_req, res, next) => {
   }
 })
 
+router.get('/pricing', async (_req, res, next) => {
+  try {
+    const pricing = await businessService.getPricingContent()
+    res.json({ success: true, data: pricing })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/my/profile', authenticate, authorize('business'), async (req, res, next) => {
   try {
     const business = await businessService.getByUserId(req.user.id)
@@ -40,6 +49,33 @@ router.get('/my/profile', authenticate, authorize('business'), async (req, res, 
     next(err)
   }
 })
+
+router.post(
+  '/:id/logo',
+  authenticate,
+  authorize('business'),
+  (req, res, next) => {
+    logoUpload.single('logo')(req, res, (err) => {
+      if (!err) return next()
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(new AppError('Logo file is too large. Maximum size is 2MB.', 400))
+      }
+      return next(err)
+    })
+  },
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        throw new AppError('Please upload a logo image (PNG, JPG, or WEBP).', 400)
+      }
+      const logoUrl = buildLogoPublicPath(req.file.filename)
+      const business = await businessService.updateLogo(req.params.id, req.user.id, logoUrl)
+      res.json({ success: true, data: business })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
 
 router.get('/:identifier', async (req, res, next) => {
   try {

@@ -23,6 +23,7 @@ export const env = {
   AI_API_KEY: process.env.AI_API_KEY || '',
   AI_API_URL: process.env.AI_API_URL || 'https://api.openai.com/v1',
   AI_AUTO_PUBLISH_THRESHOLD: parseInt(process.env.AI_AUTO_PUBLISH_THRESHOLD || '85', 10),
-  ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@checkareview.com',
-  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'Admin@123',
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'superadmin@checkareview.com',
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'SuperAdmin@123',
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
 }

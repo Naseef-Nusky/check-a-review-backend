@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '../db/pool.js'
+import { env } from '../config/env.js'
 import { AppError, paginate } from '../utils/helpers.js'
 import { aiModerationService } from './aiModeration.service.js'
 import { emailService } from './email.service.js'
@@ -7,7 +8,7 @@ import { businessService } from './business.service.js'
 import { notificationService } from './notification.service.js'
 
 export const reviewService = {
-  async create({ businessId, userId, rating, title, content }) {
+  async create({ businessId, userId, rating, title, content, inviteToken }) {
     const business = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
     if (business.rows.length === 0) throw new AppError('Business not found', 404)
 
@@ -42,6 +43,10 @@ export const reviewService = {
       ],
     )
     const review = result.rows[0]
+
+    if (inviteToken) {
+      await this.markInvitationReviewed(inviteToken, userId)
+    }
 
     const user = await query('SELECT email, name FROM users WHERE id = $1', [userId])
     await emailService.sendReviewConfirmation(user.rows[0].email, business.rows[0].name)
@@ -118,7 +123,7 @@ export const reviewService = {
 
   async getByUser(userId) {
     const result = await query(
-      `SELECT r.*, b.name as business_name, b.slug as business_slug
+      `SELECT r.*, b.name as business_name, b.slug as business_slug, b.website as business_website
        FROM reviews r JOIN businesses b ON b.id = r.business_id
        WHERE r.user_id = $1 ORDER BY r.created_at DESC`,
       [userId],
@@ -197,10 +202,37 @@ export const reviewService = {
       [businessId, email.toLowerCase(), token],
     )
 
-    const inviteUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/review-invite/${token}`
+    const baseUrl = (env.PUBLIC_SITE_URL || 'http://localhost:5173').replace(/\/$/, '')
+    const inviteUrl = `${baseUrl}/review-invite/${token}`
     await emailService.sendReviewInvitation(email, business.rows[0].name, inviteUrl)
 
     return result.rows[0]
+  },
+
+  async getInvitationByToken(token) {
+    const result = await query(
+      `SELECT i.id, i.email, i.token, i.status, i.sent_at, i.reviewed_at,
+              b.id as business_id, b.name as business_name, b.slug as business_slug,
+              b.logo_url as business_logo, b.category as business_category
+       FROM review_invitations i
+       JOIN businesses b ON b.id = i.business_id
+       WHERE i.token = $1`,
+      [token],
+    )
+    if (result.rows.length === 0) throw new AppError('Invitation not found or expired', 404)
+    const invite = result.rows[0]
+    if (invite.status === 'expired') throw new AppError('This invitation has expired', 410)
+    return invite
+  },
+
+  async markInvitationReviewed(token, userId) {
+    if (!token) return
+    await query(
+      `UPDATE review_invitations
+       SET status = 'reviewed', reviewed_at = NOW()
+       WHERE token = $1 AND status = 'pending'`,
+      [token],
+    )
   },
 
   async getInvitations(businessId, userId) {

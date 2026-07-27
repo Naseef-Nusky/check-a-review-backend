@@ -6,9 +6,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255),
+  google_id VARCHAR(255) UNIQUE,
   name VARCHAR(255) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'business', 'admin')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer')),
   bio TEXT,
   email_verified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -135,6 +136,20 @@ CREATE TABLE IF NOT EXISTS website_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS business_pricing_content (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  hero_title VARCHAR(255) NOT NULL DEFAULT 'Turn trust into growth with Check A Review',
+  hero_subtitle TEXT NOT NULL DEFAULT 'Launch faster with plans built for growing brands, established teams, and enterprise businesses that need more visibility from reviews.',
+  billing_note TEXT NOT NULL DEFAULT 'Choose the plan that fits your business today and scale up when you need more review reach, insight, and conversion tools.',
+  trust_badge VARCHAR(255) NOT NULL DEFAULT '14-day free trial on paid plans',
+  logos JSONB NOT NULL DEFAULT '[]'::jsonb,
+  steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+  plans JSONB NOT NULL DEFAULT '[]'::jsonb,
+  comparison_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+  faqs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Business category hierarchy
 CREATE TABLE IF NOT EXISTS main_categories (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -157,6 +172,25 @@ CREATE TABLE IF NOT EXISTS sub_categories (
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+
+-- Existing DBs: allow Google-only accounts (nullable password) and google_id
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'users_google_id_key'
+  ) THEN
+    ALTER TABLE users ADD CONSTRAINT users_google_id_key UNIQUE (google_id);
+  END IF;
+END $$;
+
+-- Existing DBs: CRM roles (super_admin, admin, viewer)
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check
+  CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'));
+
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON businesses(slug);
 CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses(category);
 CREATE INDEX IF NOT EXISTS idx_sub_categories_main_category_id ON sub_categories(main_category_id);

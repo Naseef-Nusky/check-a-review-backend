@@ -1,12 +1,14 @@
 import sgMail from '@sendgrid/mail'
 import { env } from '../config/env.js'
 
-if (env.SENDGRID_API_KEY) {
+const hasValidSendGridKey = Boolean(env.SENDGRID_API_KEY && env.SENDGRID_API_KEY.startsWith('SG.'))
+
+if (hasValidSendGridKey) {
   sgMail.setApiKey(env.SENDGRID_API_KEY)
 }
 
 async function sendViaSendGrid({ to, subject, html }) {
-  if (!env.SENDGRID_API_KEY) {
+  if (!hasValidSendGridKey) {
     console.log(`[Email - Dev Mode] To: ${to} | Subject: ${subject}`)
     return
   }
@@ -42,10 +44,15 @@ async function sendViaResend({ to, subject, html }) {
 }
 
 async function sendEmail(payload) {
-  if (env.EMAIL_PROVIDER === 'resend') {
-    return sendViaResend(payload)
+  try {
+    if (env.EMAIL_PROVIDER === 'resend') {
+      return await sendViaResend(payload)
+    }
+    return await sendViaSendGrid(payload)
+  } catch (err) {
+    // Email should never break core flows like review submission.
+    console.warn(`[Email] Failed to send "${payload.subject}" to ${payload.to}:`, err.message || err)
   }
-  return sendViaSendGrid(payload)
 }
 
 export const emailService = {
@@ -115,8 +122,14 @@ export const emailService = {
       subject: `${businessName} invites you to leave a review`,
       html: `
         <h2>Share your experience with ${businessName}</h2>
-        <p>We'd love to hear about your experience. Click below to leave a review:</p>
-        <a href="${inviteUrl}">Write a Review</a>
+        <p>We'd love to hear about your experience on Check A Review.</p>
+        <p>Click the button below. If you don't have an account yet, you can <strong>sign up</strong> or <strong>log in</strong>, then write your review.</p>
+        <p style="margin: 24px 0;">
+          <a href="${inviteUrl}" style="background:#FF4081;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600;">
+            Log in or sign up to write a review
+          </a>
+        </p>
+        <p style="color:#64748b;font-size:13px;">Or open this link: <a href="${inviteUrl}">${inviteUrl}</a></p>
       `,
     })
   },

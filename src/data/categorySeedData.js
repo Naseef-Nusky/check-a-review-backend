@@ -1,4 +1,4 @@
-/** Trustpilot-style main categories and subcategories (editable via admin) */
+/** Check A Review main categories and subcategories (editable via admin) */
 export const CATEGORY_SEED = [
   {
     name: 'Animals & Pets',

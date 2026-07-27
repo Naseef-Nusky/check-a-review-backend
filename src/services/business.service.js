@@ -1,6 +1,7 @@
 import { query } from '../db/pool.js'
 import { AppError, slugify, paginate } from '../utils/helpers.js'
 import { categoryService } from './category.service.js'
+import { pricingContentService } from './pricing-content.service.js'
 
 async function updateBusinessStats(businessId) {
   await query(
@@ -67,6 +68,10 @@ export const businessService = {
     return categoryService.getCategoryTree()
   },
 
+  async getPricingContent() {
+    return pricingContentService.getBusinessPricingContent()
+  },
+
   async getByUserId(userId) {
     const result = await query('SELECT * FROM businesses WHERE user_id = $1', [userId])
     if (result.rows.length === 0) throw new AppError('Business not found', 404)
@@ -79,7 +84,12 @@ export const businessService = {
 
     let category = data.category
     if (category) {
-      category = await categoryService.validateSubcategoryName(category)
+      try {
+        category = await categoryService.validateSubcategoryName(category)
+      } catch {
+        // Allow existing/legacy category names so profile edits still save
+        category = String(category).trim()
+      }
     }
 
     const result = await query(
@@ -91,20 +101,34 @@ export const businessService = {
         email = COALESCE($5, email),
         phone = COALESCE($6, phone),
         address = COALESCE($7, address),
-        slug = CASE WHEN $1 IS NOT NULL THEN $8 ELSE slug END,
+        logo_url = CASE WHEN $11 THEN $8 ELSE logo_url END,
+        slug = CASE WHEN $1 IS NOT NULL THEN $9 ELSE slug END,
         updated_at = NOW()
-       WHERE id = $9 RETURNING *`,
+       WHERE id = $10 RETURNING *`,
       [
-        data.name,
-        category,
-        data.description,
-        data.website,
-        data.email,
-        data.phone,
-        data.address,
+        data.name ?? null,
+        category ?? null,
+        data.description !== undefined ? data.description : null,
+        data.website !== undefined ? data.website : null,
+        data.email !== undefined ? data.email : null,
+        data.phone !== undefined ? data.phone : null,
+        data.address !== undefined ? data.address : null,
+        data.logoUrl ?? data.logo_url ?? null,
         data.name ? slugify(data.name) : null,
         businessId,
+        data.logoUrl !== undefined || data.logo_url !== undefined,
       ],
+    )
+    return result.rows[0]
+  },
+
+  async updateLogo(businessId, userId, logoUrl) {
+    const owner = await query('SELECT id FROM businesses WHERE id = $1 AND user_id = $2', [businessId, userId])
+    if (owner.rows.length === 0) throw new AppError('Business not found or access denied', 403)
+
+    const result = await query(
+      `UPDATE businesses SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [logoUrl, businessId],
     )
     return result.rows[0]
   },

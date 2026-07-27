@@ -14,15 +14,62 @@ async function seed() {
     )
   }
 
-  const adminExists = await query('SELECT id FROM users WHERE email = $1', [env.ADMIN_EMAIL])
+  // Migrate legacy admin@ email to configured super admin email
+  const legacyAdmin = await query(
+    `SELECT id FROM users WHERE email = 'admin@checkareview.com' AND email <> $1`,
+    [env.ADMIN_EMAIL],
+  )
+  if (legacyAdmin.rows.length > 0) {
+    const passwordHash = await bcrypt.hash(env.ADMIN_PASSWORD, 12)
+    await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
+    await query(`
+      ALTER TABLE users ADD CONSTRAINT users_role_check
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+    `)
+    const taken = await query('SELECT id FROM users WHERE email = $1', [env.ADMIN_EMAIL])
+    if (taken.rows.length === 0) {
+      await query(
+        `UPDATE users
+         SET email = $1, name = 'Super Admin', role = 'super_admin', password_hash = $2, updated_at = NOW()
+         WHERE email = 'admin@checkareview.com'`,
+        [env.ADMIN_EMAIL, passwordHash],
+      )
+      console.log(`Legacy admin migrated to super admin: ${env.ADMIN_EMAIL}`)
+    }
+  }
+
+  const adminExists = await query('SELECT id, role FROM users WHERE email = $1', [env.ADMIN_EMAIL])
   if (adminExists.rows.length === 0) {
     const passwordHash = await bcrypt.hash(env.ADMIN_PASSWORD, 12)
+    await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
+    await query(`
+      ALTER TABLE users ADD CONSTRAINT users_role_check
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+    `)
     await query(
       `INSERT INTO users (email, password_hash, name, role, email_verified)
-       VALUES ($1, $2, 'Admin', 'admin', TRUE)`,
+       VALUES ($1, $2, 'Super Admin', 'super_admin', TRUE)`,
       [env.ADMIN_EMAIL, passwordHash],
     )
-    console.log(`Admin created: ${env.ADMIN_EMAIL}`)
+    console.log(`Super admin created: ${env.ADMIN_EMAIL}`)
+  } else if (adminExists.rows[0].role === 'admin') {
+    await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
+    await query(`
+      ALTER TABLE users ADD CONSTRAINT users_role_check
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+    `)
+    await query(
+      `UPDATE users SET role = 'super_admin', name = 'Super Admin', updated_at = NOW()
+       WHERE email = $1`,
+      [env.ADMIN_EMAIL],
+    )
+    console.log(`Existing admin promoted to super_admin: ${env.ADMIN_EMAIL}`)
+  } else {
+    await query(
+      `UPDATE users SET name = 'Super Admin', role = 'super_admin', updated_at = NOW()
+       WHERE email = $1 AND role = 'super_admin'`,
+      [env.ADMIN_EMAIL],
+    )
   }
 
   const sampleBusinesses = [

@@ -1,10 +1,15 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { OAuth2Client } from 'google-auth-library'
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { AppError, slugify, omitPassword } from '../utils/helpers.js'
 import { emailService } from './email.service.js'
+
+const googleClient = env.GOOGLE_CLIENT_ID
+  ? new OAuth2Client(env.GOOGLE_CLIENT_ID)
+  : null
 
 function signToken(user) {
   return jwt.sign(
@@ -12,6 +17,28 @@ function signToken(user) {
     env.JWT_SECRET,
     { expiresIn: env.JWT_EXPIRES_IN },
   )
+}
+
+async function ensureGoogleAuthColumns() {
+  await query('ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL')
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255)')
+  await query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'users_google_id_key'
+      ) THEN
+        ALTER TABLE users ADD CONSTRAINT users_google_id_key UNIQUE (google_id);
+      END IF;
+    END $$;
+  `)
+}
+
+let googleColumnsReady = false
+async function readyGoogleColumns() {
+  if (googleColumnsReady) return
+  await ensureGoogleAuthColumns()
+  googleColumnsReady = true
 }
 
 export const authService = {
@@ -75,8 +102,73 @@ export const authService = {
     const user = result.rows[0]
     if (!user) throw new AppError('Invalid email or password', 401)
 
+    if (!user.password_hash) {
+      throw new AppError('This account uses Google sign-in. Please continue with Google.', 401)
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash)
     if (!valid) throw new AppError('Invalid email or password', 401)
+
+    const token = signToken(user)
+    return { user: omitPassword(user), token }
+  },
+
+  async loginWithGoogle(idToken) {
+    if (!googleClient || !env.GOOGLE_CLIENT_ID) {
+      throw new AppError('Google sign-in is not configured on the server', 503)
+    }
+    if (!idToken) throw new AppError('Google credential is required', 400)
+
+    await readyGoogleColumns()
+
+    let ticket
+    try {
+      ticket = await googleClient.verifyIdToken({
+        idToken,
+        audience: env.GOOGLE_CLIENT_ID,
+      })
+    } catch {
+      throw new AppError('Invalid Google sign-in token', 401)
+    }
+
+    const payload = ticket.getPayload()
+    if (!payload?.email || !payload.sub) {
+      throw new AppError('Google account email is required', 400)
+    }
+    if (payload.email_verified === false) {
+      throw new AppError('Google email is not verified', 400)
+    }
+
+    const email = payload.email.toLowerCase()
+    const googleId = payload.sub
+    const name = payload.name || email.split('@')[0]
+
+    let existing = await query(
+      'SELECT * FROM users WHERE google_id = $1 OR email = $2 LIMIT 1',
+      [googleId, email],
+    )
+    let user = existing.rows[0]
+
+    if (user) {
+      if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'viewer' || user.role === 'business') {
+        throw new AppError('Please use email login for this account type', 403)
+      }
+      if (!user.google_id) {
+        await query(
+          `UPDATE users SET google_id = $1, email_verified = TRUE, updated_at = NOW() WHERE id = $2`,
+          [googleId, user.id],
+        )
+        user = { ...user, google_id: googleId, email_verified: true }
+      }
+    } else {
+      const created = await query(
+        `INSERT INTO users (email, password_hash, google_id, name, role, email_verified)
+         VALUES ($1, NULL, $2, $3, 'customer', TRUE)
+         RETURNING *`,
+        [email, googleId, name],
+      )
+      user = created.rows[0]
+    }
 
     const token = signToken(user)
     return { user: omitPassword(user), token }

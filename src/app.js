@@ -5,10 +5,13 @@ import morgan from 'morgan'
 import { env } from './config/env.js'
 import routes from './routes/index.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
+import { uploadsRoot } from './middleware/upload.js'
 
 const app = express()
 
-app.use(helmet())
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}))
 app.use(cors({
   origin: env.CLIENT_URL.split(',').map((url) => url.trim()),
   credentials: true,
@@ -18,6 +21,7 @@ app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'))
 app.use('/api/subscriptions/webhook', express.raw({ type: 'application/json' }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+app.use('/uploads', express.static(uploadsRoot))
 
 app.use('/api', routes)
 

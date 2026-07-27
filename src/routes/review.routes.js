@@ -56,6 +56,15 @@ router.post(
   },
 )
 
+router.get('/invite/:token', async (req, res, next) => {
+  try {
+    const invitation = await reviewService.getInvitationByToken(req.params.token)
+    res.json({ success: true, data: invitation })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/invitations/:businessId', authenticate, authorize('business'), async (req, res, next) => {
   try {
     const invitations = await reviewService.getInvitations(req.params.businessId, req.user.id)
@@ -84,6 +93,7 @@ router.post(
         rating: req.body.rating,
         title: req.body.title,
         content: req.body.content,
+        inviteToken: req.body.inviteToken || null,
       })
       res.status(201).json({ success: true, data: result })
     } catch (err) {

@@ -1,16 +1,17 @@
 import { Router } from 'express'
 import { body } from 'express-validator'
 import { validate } from '../middleware/validate.js'
-import { authenticate, authorize } from '../middleware/auth.js'
+import { authenticate, authorizeCrm, requireSuperAdmin, denyViewerWrites, syncCrmRole } from '../middleware/auth.js'
 import { adminService } from '../services/admin.service.js'
 import { reviewService } from '../services/review.service.js'
 
 const router = Router()
 
-router.use(authenticate, authorize('admin'))
+router.use(authenticate, syncCrmRole, authorizeCrm, denyViewerWrites)
 
 router.get('/dashboard', async (_req, res, next) => {
   try {
+    await adminService.ensureCrmRoleConstraint()
     const stats = await adminService.getDashboardStats()
     res.json({ success: true, data: stats })
   } catch (err) {
@@ -27,10 +28,115 @@ router.get('/users', async (_req, res, next) => {
   }
 })
 
+router.get('/staff', async (_req, res, next) => {
+  try {
+    const staff = await adminService.getStaff()
+    res.json({ success: true, data: staff })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post(
+  '/staff',
+  requireSuperAdmin,
+  [
+    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('email').isEmail().withMessage('Valid email required'),
+    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('role').isIn(['admin', 'viewer']).withMessage('Role must be admin or viewer'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const staff = await adminService.createStaff(req.body)
+      res.status(201).json({ success: true, data: staff })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.patch(
+  '/staff/:id',
+  requireSuperAdmin,
+  [
+    body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Name cannot be empty'),
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email required'),
+    body('password').optional({ checkFalsy: true }).isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('role').optional().isIn(['admin', 'viewer']).withMessage('Role must be admin or viewer'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const staff = await adminService.updateStaff(req.params.id, req.body, req.user.id)
+      res.json({ success: true, data: staff })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.delete('/staff/:id', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const result = await adminService.deleteStaff(req.params.id, req.user.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/businesses', async (_req, res, next) => {
   try {
     const businesses = await adminService.getBusinesses()
     res.json({ success: true, data: businesses })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/businesses/:id', async (req, res, next) => {
+  try {
+    const business = await adminService.getBusinessById(req.params.id)
+    res.json({ success: true, data: business })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.patch(
+  '/businesses/:id',
+  [
+    body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Business name cannot be empty'),
+    body('category').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Category cannot be empty'),
+    body('email').optional({ nullable: true, checkFalsy: true }).isEmail().withMessage('Business email must be valid'),
+    body('owner_email').optional({ nullable: true, checkFalsy: true }).isEmail().withMessage('Owner email must be valid'),
+    body('website').optional({ nullable: true }),
+    body('phone').optional({ nullable: true }),
+    body('address').optional({ nullable: true }),
+    body('description').optional({ nullable: true }),
+    body('owner_name').optional({ nullable: true }),
+    body('plan').optional({ checkFalsy: true }).isIn(['free', 'starter', 'premium']).withMessage('Invalid plan'),
+    body('subscription_status')
+      .optional({ checkFalsy: true })
+      .isIn(['active', 'cancelled', 'past_due', 'trialing'])
+      .withMessage('Invalid subscription status'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const business = await adminService.updateBusiness(req.params.id, req.body)
+      res.json({ success: true, data: business })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.delete('/businesses/:id', async (req, res, next) => {
+  try {
+    const result = await adminService.deleteBusiness(req.params.id)
+    res.json({ success: true, data: result })
   } catch (err) {
     next(err)
   }
@@ -192,6 +298,15 @@ router.get('/reviews/flagged', async (_req, res, next) => {
   }
 })
 
+router.get('/reviews/:id', async (req, res, next) => {
+  try {
+    const review = await adminService.getReviewById(req.params.id)
+    res.json({ success: true, data: review })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.patch(
   '/reviews/:id/moderate',
   [body('status').isIn(['published', 'rejected', 'reported']).withMessage('Invalid status')],
@@ -237,6 +352,24 @@ router.put('/settings', async (req, res, next) => {
   try {
     const settings = await adminService.updateSettings(req.body)
     res.json({ success: true, data: settings })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/pricing', async (_req, res, next) => {
+  try {
+    const pricing = await adminService.getBusinessPricingContent()
+    res.json({ success: true, data: pricing })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/pricing', async (req, res, next) => {
+  try {
+    const pricing = await adminService.updateBusinessPricingContent(req.body)
+    res.json({ success: true, data: pricing })
   } catch (err) {
     next(err)
   }

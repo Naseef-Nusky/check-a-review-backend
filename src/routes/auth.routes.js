@@ -42,6 +42,20 @@ router.post(
   },
 )
 
+router.post(
+  '/google',
+  [body('credential').notEmpty().withMessage('Google credential is required')],
+  validate,
+  async (req, res, next) => {
+    try {
+      const result = await authService.loginWithGoogle(req.body.credential)
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.post('/verify-email', async (req, res, next) => {
   try {
     const result = await authService.verifyEmail(req.body.token)
