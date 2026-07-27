@@ -116,6 +116,14 @@ export const emailService = {
     })
   },
 
+  async sendReviewUpdatedNotification(to, businessName, rating) {
+    await sendEmail({
+      to,
+      subject: `A review was updated for ${businessName}`,
+      html: `<p>A customer updated their <strong>${rating}-star</strong> review for <strong>${businessName}</strong>. Log in to your dashboard to view the changes.</p>`,
+    })
+  },
+
   async sendReviewInvitation(to, businessName, inviteUrl) {
     await sendEmail({
       to,

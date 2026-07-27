@@ -456,6 +456,10 @@ export const adminService = {
   },
 
   async updateSettings(data) {
+    const threshold = data.autoPublishThreshold !== undefined && data.autoPublishThreshold !== null
+      ? Math.min(100, Math.max(0, Number(data.autoPublishThreshold)))
+      : null
+
     const result = await query(
       `UPDATE website_settings SET
         site_name = COALESCE($1, site_name),
@@ -465,7 +469,7 @@ export const adminService = {
         email_provider = COALESCE($5, email_provider),
         updated_at = NOW()
        RETURNING *`,
-      [data.siteName, data.supportEmail, data.aiModeration, data.autoPublishThreshold, data.emailProvider],
+      [data.siteName, data.supportEmail, data.aiModeration, threshold, data.emailProvider],
     )
     return result.rows[0]
   },
