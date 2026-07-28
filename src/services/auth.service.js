@@ -22,6 +22,7 @@ function signToken(user) {
 async function ensureGoogleAuthColumns() {
   await query('ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL')
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255)')
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT')
   await query(`
     DO $$
     BEGIN
@@ -98,6 +99,7 @@ export const authService = {
   },
 
   async login({ email, password }) {
+    await readyGoogleColumns()
     const result = await query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()])
     const user = result.rows[0]
     if (!user) throw new AppError('Invalid email or password', 401)
@@ -223,17 +225,37 @@ export const authService = {
   },
 
   async getProfile(userId) {
+    await readyGoogleColumns()
     const result = await query('SELECT * FROM users WHERE id = $1', [userId])
     if (result.rows.length === 0) throw new AppError('User not found', 404)
     return omitPassword(result.rows[0])
   },
 
-  async updateProfile(userId, { name, bio }) {
+  async updateProfile(userId, { name, bio, avatar_url, avatarUrl }) {
+    await readyGoogleColumns()
+    const nextAvatar =
+      avatarUrl !== undefined ? avatarUrl : avatar_url !== undefined ? avatar_url : undefined
+
     const result = await query(
-      `UPDATE users SET name = COALESCE($1, name), bio = COALESCE($2, bio), updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [name, bio, userId],
+      `UPDATE users SET
+         name = COALESCE($1, name),
+         bio = COALESCE($2, bio),
+         avatar_url = CASE WHEN $4 THEN $3 ELSE avatar_url END,
+         updated_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [name ?? null, bio ?? null, nextAvatar ?? null, nextAvatar !== undefined, userId],
     )
+    return omitPassword(result.rows[0])
+  },
+
+  async updateAvatar(userId, avatarUrl) {
+    await readyGoogleColumns()
+    const result = await query(
+      `UPDATE users SET avatar_url = $1, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [avatarUrl, userId],
+    )
+    if (result.rows.length === 0) throw new AppError('User not found', 404)
     return omitPassword(result.rows[0])
   },
 }

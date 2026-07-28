@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
 import { businessService } from '../services/business.service.js'
+import { aiReviewSummaryService } from '../services/aiReviewSummary.service.js'
 import { paginate, AppError } from '../utils/helpers.js'
 import { buildLogoPublicPath, logoUpload } from '../middleware/upload.js'
 
@@ -76,6 +77,16 @@ router.post(
     }
   },
 )
+
+router.get('/:id/review-summary', async (req, res, next) => {
+  try {
+    const force = String(req.query.force || '') === '1'
+    const summary = await aiReviewSummaryService.getSummary(req.params.id, { force })
+    res.json({ success: true, data: summary })
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.get('/:identifier', async (req, res, next) => {
   try {

@@ -4,6 +4,7 @@ import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
 
 async function updateBusinessStats(businessId) {
+  await query('ALTER TABLE businesses ADD COLUMN IF NOT EXISTS ai_review_summary JSONB')
   await query(
     `UPDATE businesses SET
       average_rating = COALESCE((SELECT ROUND(AVG(rating)::numeric, 2) FROM reviews WHERE business_id = $1 AND status = 'published'), 0),
@@ -11,6 +12,7 @@ async function updateBusinessStats(businessId) {
       trust_score = LEAST(100, GREATEST(0,
         COALESCE((SELECT ROUND(AVG(rating)::numeric * 20, 2) FROM reviews WHERE business_id = $1 AND status = 'published'), 0)
       )),
+      ai_review_summary = NULL,
       updated_at = NOW()
      WHERE id = $1`,
     [businessId],

@@ -3,6 +3,8 @@ import { body } from 'express-validator'
 import { validate } from '../middleware/validate.js'
 import { authenticate } from '../middleware/auth.js'
 import { authService } from '../services/auth.service.js'
+import { AppError } from '../utils/helpers.js'
+import { avatarUpload, buildAvatarPublicPath } from '../middleware/upload.js'
 
 const router = Router()
 
@@ -119,5 +121,40 @@ router.put(
     }
   },
 )
+
+router.post(
+  '/me/avatar',
+  authenticate,
+  (req, res, next) => {
+    avatarUpload.single('avatar')(req, res, (err) => {
+      if (!err) return next()
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(new AppError('Profile picture is too large. Maximum size is 5MB.', 400))
+      }
+      return next(err)
+    })
+  },
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        throw new AppError('Please upload a profile picture (PNG, JPG, or WEBP).', 400)
+      }
+      const avatarUrl = buildAvatarPublicPath(req.file.filename)
+      const user = await authService.updateAvatar(req.user.id, avatarUrl)
+      res.json({ success: true, data: user })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.delete('/me/avatar', authenticate, async (req, res, next) => {
+  try {
+    const user = await authService.updateAvatar(req.user.id, null)
+    res.json({ success: true, data: user })
+  } catch (err) {
+    next(err)
+  }
+})
 
 export default router

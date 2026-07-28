@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer')),
   bio TEXT,
+  avatar_url TEXT,
   email_verified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -177,6 +178,7 @@ CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
 -- Existing DBs: allow Google-only accounts (nullable password) and google_id
 ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 DO $$
 BEGIN
   IF NOT EXISTS (
