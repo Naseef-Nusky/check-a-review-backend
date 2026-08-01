@@ -56,6 +56,10 @@ export const reviewService = {
   async create({ businessId, userId, rating, title, content, inviteToken }) {
     const business = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
     if (business.rows.length === 0) throw new AppError('Business not found', 404)
+    await businessService.ensureBusinessStatusColumn()
+    if (business.rows[0].status && business.rows[0].status !== 'published') {
+      throw new AppError('This business is not accepting public reviews yet', 403)
+    }
 
     const existing = await query(
       'SELECT id FROM reviews WHERE business_id = $1 AND user_id = $2',
@@ -222,11 +226,15 @@ export const reviewService = {
        FROM reviews r
        JOIN users u ON u.id = r.user_id
        JOIN businesses b ON b.id = r.business_id
-       WHERE r.status = 'published'
+       WHERE r.status = 'published' AND b.status = 'published'
        ORDER BY r.created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset],
     )
-    const count = await query(`SELECT COUNT(*) FROM reviews WHERE status = 'published'`)
+    const count = await query(
+      `SELECT COUNT(*) FROM reviews r
+       JOIN businesses b ON b.id = r.business_id
+       WHERE r.status = 'published' AND b.status = 'published'`,
+    )
     return { reviews: result.rows, total: parseInt(count.rows[0].count, 10), page, limit }
   },
 

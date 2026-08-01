@@ -3,9 +3,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users (customers, business owners, admins)
+-- Customer and business accounts stay separate, but the same email may own both.
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  email VARCHAR(255) UNIQUE NOT NULL,
+  email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255),
   google_id VARCHAR(255) UNIQUE,
   name VARCHAR(255) NOT NULL,
@@ -14,10 +15,29 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url TEXT,
   email_verified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (email, role)
 );
 
--- Email verification tokens
+-- Pending signups (account is created only after email verification)
+CREATE TABLE IF NOT EXISTS pending_registrations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'business')),
+  category VARCHAR(255),
+  website TEXT,
+  phone VARCHAR(50),
+  description TEXT,
+  token VARCHAR(255) NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (email, role)
+);
+
+-- Email verification tokens (legacy / edge cases)
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -48,6 +68,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   phone VARCHAR(50),
   address TEXT,
   logo_url VARCHAR(500),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'published', 'rejected')),
   trust_score DECIMAL(5,2) DEFAULT 0,
   average_rating DECIMAL(3,2) DEFAULT 0,
   review_count INTEGER DEFAULT 0,

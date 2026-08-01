@@ -11,6 +11,7 @@ export function errorHandler(err, _req, res, _next) {
   res.status(statusCode).json({
     success: false,
     message,
+    ...(err.code ? { code: err.code } : {}),
     ...(process.env.NODE_ENV === 'development' && !err.isOperational && { stack: err.stack }),
   })
 }

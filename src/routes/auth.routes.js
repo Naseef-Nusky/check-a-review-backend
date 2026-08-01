@@ -32,6 +32,7 @@ router.post(
   [
     body('email').isEmail().withMessage('Valid email required'),
     body('password').notEmpty().withMessage('Password is required'),
+    body('role').optional().isIn(['customer', 'business']).withMessage('Invalid account type'),
   ],
   validate,
   async (req, res, next) => {
@@ -58,22 +59,51 @@ router.post(
   },
 )
 
-router.post('/verify-email', async (req, res, next) => {
-  try {
-    const result = await authService.verifyEmail(req.body.token)
-    res.json({ success: true, data: result })
-  } catch (err) {
-    next(err)
-  }
-})
-
 router.post(
-  '/forgot-password',
-  [body('email').isEmail().withMessage('Valid email required')],
+  '/verify-email',
+  [
+    body('email').isEmail().withMessage('Valid email required'),
+    body('code').trim().matches(/^\d{6}$/).withMessage('Enter the 6-digit code from your email'),
+    body('role').optional().isIn(['customer', 'business']).withMessage('Invalid account type'),
+  ],
   validate,
   async (req, res, next) => {
     try {
-      const result = await authService.forgotPassword(req.body.email)
+      const result = await authService.verifyEmail(req.body)
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/resend-verification',
+  [
+    body('email').isEmail().withMessage('Valid email required'),
+    body('role').optional().isIn(['customer', 'business']).withMessage('Invalid account type'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const result = await authService.resendVerificationCode(req.body.email, req.body.role)
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/forgot-password',
+  [
+    body('email').isEmail().withMessage('Valid email required'),
+    body('role').optional().isIn(['customer', 'business']).withMessage('Invalid account type'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const result = await authService.forgotPassword(req.body.email, req.body.role)
       res.json({ success: true, data: result })
     } catch (err) {
       next(err)

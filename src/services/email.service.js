@@ -152,24 +152,23 @@ async function sendEmail(payload) {
 }
 
 export const emailService = {
-  async sendVerificationEmail(to, name, token) {
-    const verifyUrl = `${env.PUBLIC_SITE_URL}/verify-email?token=${token}`
+  async sendVerificationEmail(to, name, code) {
     await sendEmail({
       to,
-      subject: `Welcome to ${APP_NAME} - confirm your email`,
+      subject: `Your ${APP_NAME} verification code`,
       html: renderEmailTemplate({
         eyebrow: `Welcome to ${APP_NAME}`,
-        title: 'Your account is almost ready',
-        intro: `Hi ${escapeHtml(name)}, thanks for joining ${APP_NAME}.`,
-        body: `Please confirm your email address to activate your account and start collecting, reading, and managing trusted reviews.`,
-        primaryCta: { label: 'Confirm email', href: verifyUrl },
+        title: 'Confirm your email',
+        intro: `Hi ${escapeHtml(name)}, use this code to verify your email address.`,
+        body: 'Enter the code on the verification page to activate your account.',
+        stats: [{ value: escapeHtml(code), label: 'Verification code' }],
         sections: [
           sectionCard({
-            title: 'What happens next',
-            body: 'After verification, you can complete your profile, explore businesses, and manage your reviews in one place.',
+            title: 'Code details',
+            body: `Your 6-digit code is <strong style="font-size:20px;letter-spacing:4px;color:${SLATE};">${escapeHtml(code)}</strong>. It expires in 15 minutes.`,
           }),
         ],
-        footerNote: 'This verification link expires in 24 hours.',
+        footerNote: 'This verification code expires in 15 minutes.',
       }),
     })
   },
@@ -325,6 +324,36 @@ export const emailService = {
         body: `Amount paid: <strong>$${(amount / 100).toFixed(2)}</strong>.`,
         stats: [{ value: `$${(amount / 100).toFixed(2)}`, label: 'Paid' }],
         primaryCta: { label: 'View subscription', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      }),
+    })
+  },
+
+  async sendBusinessApprovedEmail(to, businessName) {
+    await sendEmail({
+      to,
+      subject: `${businessName} is now live on Check A Review`,
+      html: renderEmailTemplate({
+        eyebrow: 'Listing approved',
+        title: 'Your business is live',
+        intro: `Good news. <strong>${escapeHtml(businessName)}</strong> has been approved and is now visible on Check A Review.`,
+        body: 'Customers can find your profile, leave reviews, and see your replies. Open your dashboard to invite customers and keep your listing up to date.',
+        primaryCta: { label: 'Open business dashboard', href: `${env.BUSINESS_PORTAL_URL}/dashboard` },
+        footerNote: 'You are receiving this because your business listing was approved.',
+      }),
+    })
+  },
+
+  async sendBusinessRejectedEmail(to, businessName) {
+    await sendEmail({
+      to,
+      subject: `Update needed for ${businessName}`,
+      html: renderEmailTemplate({
+        eyebrow: 'Listing not approved',
+        title: 'Your listing needs attention',
+        intro: `We reviewed <strong>${escapeHtml(businessName)}</strong> and could not approve it for public listing yet.`,
+        body: 'Please review your company details in the business portal and contact support if you need help getting approved.',
+        primaryCta: { label: 'Update company profile', href: `${env.BUSINESS_PORTAL_URL}/profile` },
+        footerNote: 'You are receiving this because your business listing was reviewed by our team.',
       }),
     })
   },

@@ -3,17 +3,20 @@ import { query } from '../db/pool.js'
 import { AppError, slugify } from '../utils/helpers.js'
 import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
+import { ensureBusinessStatusColumn } from './business.service.js'
 
 let crmRolesReady = false
 
 export const adminService = {
   async getDashboardStats() {
-    const [users, businesses, reviews, revenue, flagged] = await Promise.all([
+    await ensureBusinessStatusColumn()
+    const [users, businesses, reviews, revenue, flagged, pendingBusinesses] = await Promise.all([
       query(`SELECT COUNT(*) FROM users WHERE role = 'customer'`),
-      query('SELECT COUNT(*) FROM businesses'),
+      query(`SELECT COUNT(*) FROM businesses WHERE status = 'published'`),
       query('SELECT COUNT(*) FROM reviews'),
       query(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'succeeded'`),
-      query(`SELECT COUNT(*) FROM reviews WHERE status = 'pending' AND ai_risk_score > 0`),
+      query(`SELECT COUNT(*) FROM reviews WHERE status = 'pending'`),
+      query(`SELECT COUNT(*) FROM businesses WHERE status = 'pending'`),
     ])
 
     return {
@@ -23,6 +26,7 @@ export const adminService = {
       totalReviews: parseInt(reviews.rows[0].count, 10),
       totalRevenue: parseInt(revenue.rows[0].total, 10),
       flaggedReviews: parseInt(flagged.rows[0].count, 10),
+      pendingBusinesses: parseInt(pendingBusinesses.rows[0].count, 10),
     }
   },
 
@@ -30,9 +34,78 @@ export const adminService = {
     const result = await query(
       `SELECT u.id, u.name, u.email, u.role, u.email_verified, u.created_at,
               (SELECT COUNT(*) FROM reviews WHERE user_id = u.id) as review_count
-       FROM users u WHERE u.role = 'customer' ORDER BY u.created_at DESC`,
+       FROM users u
+       WHERE u.role IN ('customer', 'business')
+       ORDER BY u.created_at DESC`,
     )
     return result.rows
+  },
+
+  async updateUser(id, { name, email, password, email_verified }) {
+    const existing = await query(
+      `SELECT * FROM users WHERE id = $1 AND role IN ('customer', 'business')`,
+      [id],
+    )
+    if (existing.rows.length === 0) throw new AppError('User not found', 404)
+    const user = existing.rows[0]
+
+    let nextEmail = user.email
+    if (email !== undefined && email !== null && String(email).trim()) {
+      nextEmail = String(email).trim().toLowerCase()
+      if (nextEmail !== user.email) {
+        const taken = await query(
+          'SELECT id FROM users WHERE email = $1 AND role = $2 AND id <> $3',
+          [nextEmail, user.role, id],
+        )
+        if (taken.rows.length > 0) {
+          throw new AppError('Another account with this email already exists for this account type', 409)
+        }
+      }
+    }
+
+    let passwordHash = user.password_hash
+    if (password && String(password).trim()) {
+      passwordHash = await bcrypt.hash(String(password).trim(), 12)
+    }
+
+    const nextVerified =
+      email_verified === undefined || email_verified === null
+        ? user.email_verified
+        : Boolean(email_verified)
+
+    const result = await query(
+      `UPDATE users SET
+         name = COALESCE($1, name),
+         email = $2,
+         password_hash = $3,
+         email_verified = $4,
+         updated_at = NOW()
+       WHERE id = $5
+       RETURNING id, name, email, role, email_verified, created_at, updated_at`,
+      [
+        name !== undefined && name !== null ? String(name).trim() || null : null,
+        nextEmail,
+        passwordHash,
+        nextVerified,
+        id,
+      ],
+    )
+
+    const reviewCount = await query('SELECT COUNT(*) FROM reviews WHERE user_id = $1', [id])
+    return {
+      ...result.rows[0],
+      review_count: parseInt(reviewCount.rows[0].count, 10),
+    }
+  },
+
+  async deleteUser(id) {
+    const existing = await query(
+      `SELECT id, name FROM users WHERE id = $1 AND role IN ('customer', 'business')`,
+      [id],
+    )
+    if (existing.rows.length === 0) throw new AppError('User not found', 404)
+    await query('DELETE FROM users WHERE id = $1', [id])
+    return { message: `User "${existing.rows[0].name}" removed` }
   },
 
   async ensureCrmRoleConstraint() {
@@ -158,6 +231,7 @@ export const adminService = {
   },
 
   async getBusinesses() {
+    await ensureBusinessStatusColumn()
     const result = await query(
       `SELECT b.*,
               s.plan,
@@ -169,7 +243,9 @@ export const adminService = {
        FROM businesses b
        LEFT JOIN subscriptions s ON s.business_id = b.id
        LEFT JOIN users u ON u.id = b.user_id
-       ORDER BY b.created_at DESC`,
+       ORDER BY
+         CASE b.status WHEN 'pending' THEN 0 WHEN 'published' THEN 1 ELSE 2 END,
+         b.created_at DESC`,
     )
     return result.rows
   },
@@ -231,6 +307,7 @@ export const adminService = {
   },
 
   async createBusiness(data) {
+    await ensureBusinessStatusColumn()
     const {
       name,
       email,
@@ -245,7 +322,10 @@ export const adminService = {
     const emailLower = String(email).toLowerCase()
     const slug = slugify(name)
 
-    const existingUser = await query('SELECT id FROM users WHERE email = $1', [emailLower])
+    const existingUser = await query('SELECT id, role FROM users WHERE email = $1 AND role = $2', [
+      emailLower,
+      'business',
+    ])
     if (existingUser.rows.length > 0) {
       throw new AppError('Email already registered', 409)
     }
@@ -265,9 +345,10 @@ export const adminService = {
       [emailLower, passwordHash, name],
     )
 
+    // Admin-created listings are approved immediately.
     const businessResult = await query(
-      `INSERT INTO businesses (user_id, name, slug, category, description, website, email, phone, address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO businesses (user_id, name, slug, category, description, website, email, phone, address, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'published')
        RETURNING id`,
       [userResult.rows[0].id, name, slug, validatedCategory, description, website, emailLower, phone, address],
     )
@@ -354,7 +435,10 @@ export const adminService = {
     if (data.owner_email || data.owner_name) {
       const ownerEmail = data.owner_email ? String(data.owner_email).toLowerCase() : null
       if (ownerEmail && ownerEmail !== existing.owner_email) {
-        const emailTaken = await query('SELECT id FROM users WHERE email = $1 AND id != $2', [ownerEmail, ownerId])
+        const emailTaken = await query(
+          `SELECT id FROM users WHERE email = $1 AND role = 'business' AND id != $2`,
+          [ownerEmail, ownerId],
+        )
         if (emailTaken.rows.length > 0) {
           throw new AppError('Owner email already in use', 409)
         }

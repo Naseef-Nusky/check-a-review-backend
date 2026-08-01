@@ -2,6 +2,32 @@ import { query } from '../db/pool.js'
 import { AppError, slugify, paginate } from '../utils/helpers.js'
 import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
+import { emailService } from './email.service.js'
+import { notificationService } from './notification.service.js'
+
+let statusColumnReady = false
+
+/** Existing businesses are treated as published; every new self-serve listing starts pending. */
+export async function ensureBusinessStatusColumn() {
+  if (statusColumnReady) return
+  await query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'businesses' AND column_name = 'status'
+      ) THEN
+        ALTER TABLE businesses
+          ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published';
+        ALTER TABLE businesses
+          ADD CONSTRAINT businesses_status_check
+          CHECK (status IN ('pending', 'published', 'rejected'));
+        ALTER TABLE businesses ALTER COLUMN status SET DEFAULT 'pending';
+      END IF;
+    END $$;
+  `)
+  statusColumnReady = true
+}
 
 async function updateBusinessStats(businessId) {
   await query('ALTER TABLE businesses ADD COLUMN IF NOT EXISTS ai_review_summary JSONB')
@@ -21,7 +47,8 @@ async function updateBusinessStats(businessId) {
 
 export const businessService = {
   async search({ q, category, page, limit, offset }) {
-    let where = 'WHERE 1=1'
+    await ensureBusinessStatusColumn()
+    let where = "WHERE b.status = 'published'"
     const params = []
     let idx = 1
 
@@ -53,14 +80,16 @@ export const businessService = {
     return { businesses: result.rows, total, page, limit }
   },
 
-  async getBySlugOrId(identifier) {
+  async getBySlugOrId(identifier, { includeUnpublished = false } = {}) {
+    await ensureBusinessStatusColumn()
     const result = await query(
       `SELECT b.*, s.plan as subscription_plan, u.name as owner_name
        FROM businesses b
        LEFT JOIN subscriptions s ON s.business_id = b.id
        LEFT JOIN users u ON u.id = b.user_id
-       WHERE b.slug = $1 OR b.id::text = $1`,
-      [identifier],
+       WHERE (b.slug = $1 OR b.id::text = $1)
+         AND ($2::boolean OR b.status = 'published')`,
+      [identifier, includeUnpublished],
     )
     if (result.rows.length === 0) throw new AppError('Business not found', 404)
     return result.rows[0]
@@ -75,6 +104,7 @@ export const businessService = {
   },
 
   async getByUserId(userId) {
+    await ensureBusinessStatusColumn()
     const result = await query('SELECT * FROM businesses WHERE user_id = $1', [userId])
     if (result.rows.length === 0) throw new AppError('Business not found', 404)
     return result.rows[0]
@@ -162,5 +192,61 @@ export const businessService = {
     }
   },
 
+  async getPending() {
+    await ensureBusinessStatusColumn()
+    const result = await query(
+      `SELECT b.*,
+              u.email as owner_email,
+              u.name as owner_name
+       FROM businesses b
+       LEFT JOIN users u ON u.id = b.user_id
+       WHERE b.status = 'pending'
+       ORDER BY b.created_at ASC`,
+    )
+    return result.rows
+  },
+
+  async moderate(businessId, status) {
+    await ensureBusinessStatusColumn()
+    if (!['published', 'rejected'].includes(status)) {
+      throw new AppError('Invalid business status', 400)
+    }
+
+    const before = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
+    if (before.rows.length === 0) throw new AppError('Business not found', 404)
+
+    const result = await query(
+      `UPDATE businesses SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [status, businessId],
+    )
+    const business = result.rows[0]
+    const owner = await query('SELECT id, email, name FROM users WHERE id = $1', [business.user_id])
+
+    if (owner.rows[0]) {
+      if (status === 'published') {
+        await emailService.sendBusinessApprovedEmail(owner.rows[0].email, business.name)
+        await notificationService.create(
+          owner.rows[0].id,
+          'Business listing approved',
+          `${business.name} is now live on Check A Review.`,
+          'business_approved',
+        )
+      }
+
+      if (status === 'rejected') {
+        await emailService.sendBusinessRejectedEmail(owner.rows[0].email, business.name)
+        await notificationService.create(
+          owner.rows[0].id,
+          'Business listing not approved',
+          `${business.name} was not approved. Update your details and contact support if you need help.`,
+          'business_rejected',
+        )
+      }
+    }
+
+    return business
+  },
+
   updateBusinessStats,
+  ensureBusinessStatusColumn,
 }
