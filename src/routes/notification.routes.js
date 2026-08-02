@@ -13,6 +13,15 @@ router.get('/', authenticate, async (req, res, next) => {
   }
 })
 
+router.get('/unread-count', authenticate, async (req, res, next) => {
+  try {
+    const count = await notificationService.getUnreadCount(req.user.id)
+    res.json({ success: true, data: { count } })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.patch('/read-all', authenticate, async (req, res, next) => {
   try {
     await notificationService.markAllAsRead(req.user.id)

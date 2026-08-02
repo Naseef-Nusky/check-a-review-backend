@@ -183,6 +183,16 @@ async function createBusinessForUser(user, { category, website, phone, descripti
   await query(`INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'free')`, [
     bizResult.rows[0].id,
   ])
+
+  const { notificationService } = await import('./notification.service.js')
+  await notificationService.notifyCrmStaff(
+    'New business pending approval',
+    `${bizResult.rows[0].name} signed up and is waiting for listing approval.`,
+    'pending_business',
+    `/pending-businesses`,
+  )
+
+  return bizResult.rows[0]
 }
 
 export const authService = {

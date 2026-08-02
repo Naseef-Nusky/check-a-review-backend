@@ -134,6 +134,15 @@ export const reviewService = {
       'review_submitted',
     )
 
+    if (status === 'pending') {
+      await notificationService.notifyCrmStaff(
+        'New review pending approval',
+        `A review for ${business.rows[0].name} is waiting in the moderation queue.`,
+        'pending_review',
+        '/flagged',
+      )
+    }
+
     return { review, aiAnalysis: analysis, processing: true }
   },
 
