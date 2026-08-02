@@ -35,7 +35,7 @@ export const adminService = {
       `SELECT u.id, u.name, u.email, u.role, u.email_verified, u.created_at,
               (SELECT COUNT(*) FROM reviews WHERE user_id = u.id) as review_count
        FROM users u
-       WHERE u.role IN ('customer', 'business')
+       WHERE u.role = 'customer'
        ORDER BY u.created_at DESC`,
     )
     return result.rows
@@ -43,7 +43,7 @@ export const adminService = {
 
   async updateUser(id, { name, email, password, email_verified }) {
     const existing = await query(
-      `SELECT * FROM users WHERE id = $1 AND role IN ('customer', 'business')`,
+      `SELECT * FROM users WHERE id = $1 AND role = 'customer'`,
       [id],
     )
     if (existing.rows.length === 0) throw new AppError('User not found', 404)
@@ -100,7 +100,7 @@ export const adminService = {
 
   async deleteUser(id) {
     const existing = await query(
-      `SELECT id, name FROM users WHERE id = $1 AND role IN ('customer', 'business')`,
+      `SELECT id, name FROM users WHERE id = $1 AND role = 'customer'`,
       [id],
     )
     if (existing.rows.length === 0) throw new AppError('User not found', 404)
