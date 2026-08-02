@@ -5,6 +5,7 @@ import { authenticate, authorizeCrm, requireSuperAdmin, denyViewerWrites, syncCr
 import { adminService } from '../services/admin.service.js'
 import { reviewService } from '../services/review.service.js'
 import { businessService } from '../services/business.service.js'
+import { AppError } from '../utils/helpers.js'
 
 const router = Router()
 
@@ -133,34 +134,9 @@ router.get('/businesses/:id', async (req, res, next) => {
   }
 })
 
-router.patch(
-  '/businesses/:id',
-  [
-    body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Business name cannot be empty'),
-    body('category').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Category cannot be empty'),
-    body('email').optional({ nullable: true, checkFalsy: true }).isEmail().withMessage('Business email must be valid'),
-    body('owner_email').optional({ nullable: true, checkFalsy: true }).isEmail().withMessage('Owner email must be valid'),
-    body('website').optional({ nullable: true }),
-    body('phone').optional({ nullable: true }),
-    body('address').optional({ nullable: true }),
-    body('description').optional({ nullable: true }),
-    body('owner_name').optional({ nullable: true }),
-    body('plan').optional({ checkFalsy: true }).isIn(['free', 'starter', 'premium']).withMessage('Invalid plan'),
-    body('subscription_status')
-      .optional({ checkFalsy: true })
-      .isIn(['active', 'cancelled', 'past_due', 'trialing'])
-      .withMessage('Invalid subscription status'),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const business = await adminService.updateBusiness(req.params.id, req.body)
-      res.json({ success: true, data: business })
-    } catch (err) {
-      next(err)
-    }
-  },
-)
+router.patch('/businesses/:id', async (_req, res, next) => {
+  next(new AppError('Business details cannot be edited in the CRM', 403))
+})
 
 router.delete('/businesses/:id', async (req, res, next) => {
   try {
