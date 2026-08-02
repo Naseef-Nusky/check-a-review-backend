@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS website_settings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   site_name VARCHAR(255) DEFAULT 'Check A Review',
   support_email VARCHAR(255) DEFAULT 'support@checkareview.com',
+  logo_url TEXT,
   ai_moderation_enabled BOOLEAN DEFAULT TRUE,
   auto_publish_threshold INTEGER DEFAULT 85,
   email_provider VARCHAR(20) DEFAULT 'sendgrid',

@@ -535,11 +535,16 @@ export const adminService = {
   },
 
   async getSettings() {
+    const { settingsService } = await import('./settings.service.js')
+    await settingsService.getBrandSettings()
     const result = await query('SELECT * FROM website_settings LIMIT 1')
     return result.rows[0]
   },
 
   async updateSettings(data) {
+    const { settingsService } = await import('./settings.service.js')
+    await settingsService.getBrandSettings()
+
     const threshold = data.autoPublishThreshold !== undefined && data.autoPublishThreshold !== null
       ? Math.min(100, Math.max(0, Number(data.autoPublishThreshold)))
       : null
@@ -556,6 +561,16 @@ export const adminService = {
       [data.siteName, data.supportEmail, data.aiModeration, threshold, data.emailProvider],
     )
     return result.rows[0]
+  },
+
+  async updateSiteLogo(logoUrl) {
+    const { settingsService } = await import('./settings.service.js')
+    return settingsService.updateSiteLogo(logoUrl)
+  },
+
+  async removeSiteLogo() {
+    const { settingsService } = await import('./settings.service.js')
+    return settingsService.updateSiteLogo(null)
   },
 
   async getBusinessPricingContent() {

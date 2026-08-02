@@ -6,6 +6,7 @@ import { adminService } from '../services/admin.service.js'
 import { reviewService } from '../services/review.service.js'
 import { businessService } from '../services/business.service.js'
 import { AppError } from '../utils/helpers.js'
+import { buildLogoPublicPath, logoUpload } from '../middleware/upload.js'
 
 const router = Router()
 
@@ -379,6 +380,29 @@ router.get('/settings', async (_req, res, next) => {
 router.put('/settings', async (req, res, next) => {
   try {
     const settings = await adminService.updateSettings(req.body)
+    res.json({ success: true, data: settings })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/settings/logo', (req, res, next) => {
+  logoUpload.single('logo')(req, res, async (err) => {
+    if (err) return next(err)
+    try {
+      if (!req.file) throw new AppError('Please upload a logo image (PNG, JPG, or WEBP).', 400)
+      const logoUrl = buildLogoPublicPath(req.file.filename)
+      const settings = await adminService.updateSiteLogo(logoUrl)
+      res.json({ success: true, data: settings })
+    } catch (error) {
+      next(error)
+    }
+  })
+})
+
+router.delete('/settings/logo', async (_req, res, next) => {
+  try {
+    const settings = await adminService.removeSiteLogo()
     res.json({ success: true, data: settings })
   } catch (err) {
     next(err)
