@@ -187,4 +187,13 @@ router.delete('/me/avatar', authenticate, async (req, res, next) => {
   }
 })
 
+router.delete('/me', authenticate, async (req, res, next) => {
+  try {
+    const result = await authService.deleteAccount(req.user.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router

@@ -588,4 +588,17 @@ export const authService = {
     if (result.rows.length === 0) throw new AppError('User not found', 404)
     return omitPassword(result.rows[0])
   },
+
+  async deleteAccount(userId) {
+    const existing = await query(
+      `SELECT id, role FROM users WHERE id = $1`,
+      [userId],
+    )
+    if (existing.rows.length === 0) throw new AppError('User not found', 404)
+    if (existing.rows[0].role !== 'customer') {
+      throw new AppError('Only customer accounts can be deleted here', 403)
+    }
+    await query('DELETE FROM users WHERE id = $1', [userId])
+    return { message: 'Your account has been deleted' }
+  },
 }

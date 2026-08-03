@@ -453,8 +453,8 @@ export const emailService = {
         eyebrow: 'New customer review',
         title: 'You received a new review',
         intro: `A customer just left a <strong>${escapeHtml(rating)}-star</strong> review for <strong>${escapeHtml(businessName)}</strong>.`,
-        body: 'Log in to your business dashboard to read the review and respond when appropriate.',
-        primaryCta: { label: 'Open business dashboard', href: `${env.BUSINESS_PORTAL_URL}/reviews` },
+        body: 'Log in to your business dashboard to read the review and post a public reply.',
+        primaryCta: { label: 'Reply on dashboard', href: `${env.BUSINESS_PORTAL_URL}/reviews` },
         footerNote: 'You are receiving this because your business received a new review.',
       },
     })
