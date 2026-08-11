@@ -6,7 +6,7 @@ import { adminService } from '../services/admin.service.js'
 import { reviewService } from '../services/review.service.js'
 import { businessService } from '../services/business.service.js'
 import { AppError } from '../utils/helpers.js'
-import { buildLogoPublicPath, logoUpload } from '../middleware/upload.js'
+import { logoUploadMemory } from '../middleware/upload.js'
 
 const router = Router()
 
@@ -286,6 +286,27 @@ router.post(
   },
 )
 
+router.post('/businesses/:id/logo', (req, res, next) => {
+  logoUploadMemory.single('logo')(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(new AppError('Logo file is too large. Maximum size is 2MB.', 400))
+      }
+      return next(err)
+    }
+    try {
+      if (!req.file?.buffer) throw new AppError('Please upload a logo image (PNG, JPG, or WEBP).', 400)
+      const business = await adminService.setBusinessLogo(req.params.id, {
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+      })
+      res.json({ success: true, data: business })
+    } catch (error) {
+      next(error)
+    }
+  })
+})
+
 router.get('/reviews', async (_req, res, next) => {
   try {
     const reviews = await adminService.getAllReviews()
@@ -387,12 +408,19 @@ router.put('/settings', async (req, res, next) => {
 })
 
 router.post('/settings/logo', (req, res, next) => {
-  logoUpload.single('logo')(req, res, async (err) => {
-    if (err) return next(err)
+  logoUploadMemory.single('logo')(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(new AppError('Logo file is too large. Maximum size is 2MB.', 400))
+      }
+      return next(err)
+    }
     try {
-      if (!req.file) throw new AppError('Please upload a logo image (PNG, JPG, or WEBP).', 400)
-      const logoUrl = buildLogoPublicPath(req.file.filename)
-      const settings = await adminService.updateSiteLogo(logoUrl)
+      if (!req.file?.buffer) throw new AppError('Please upload a logo image (PNG, JPG, or WEBP).', 400)
+      const settings = await adminService.updateSiteLogoFromUpload({
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+      })
       res.json({ success: true, data: settings })
     } catch (error) {
       next(error)
@@ -422,6 +450,42 @@ router.put('/pricing', async (req, res, next) => {
   try {
     const pricing = await adminService.updateBusinessPricingContent(req.body)
     res.json({ success: true, data: pricing })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/billing-plans', async (_req, res, next) => {
+  try {
+    const data = await adminService.listBillingPlans()
+    res.json({ success: true, data })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/billing-plans/:key', async (req, res, next) => {
+  try {
+    const plan = await adminService.updateBillingPlan(req.params.key, req.body)
+    res.json({ success: true, data: plan })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/billing-plans/:key/sync', async (req, res, next) => {
+  try {
+    const plan = await adminService.syncBillingPlan(req.params.key)
+    res.json({ success: true, data: plan })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/billing-plans/sync-all', async (_req, res, next) => {
+  try {
+    const plans = await adminService.syncAllBillingPlans()
+    res.json({ success: true, data: plans })
   } catch (err) {
     next(err)
   }

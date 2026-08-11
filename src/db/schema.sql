@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS businesses (
   email VARCHAR(255),
   phone VARCHAR(50),
   address TEXT,
-  logo_url VARCHAR(500),
+  logo_url TEXT,
   status VARCHAR(20) NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'published', 'rejected')),
   trust_score DECIMAL(5,2) DEFAULT 0,
@@ -117,6 +117,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     CHECK (plan IN ('free', 'starter', 'premium')),
   stripe_customer_id VARCHAR(255),
   stripe_subscription_id VARCHAR(255),
+  square_customer_id VARCHAR(255),
+  square_subscription_id VARCHAR(255),
+  pending_plan VARCHAR(20),
   status VARCHAR(20) NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'cancelled', 'past_due', 'trialing')),
   current_period_end TIMESTAMPTZ,
@@ -129,6 +132,7 @@ CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   stripe_payment_intent_id VARCHAR(255) UNIQUE,
+  square_payment_id VARCHAR(255) UNIQUE,
   amount INTEGER NOT NULL,
   currency VARCHAR(10) DEFAULT 'usd',
   plan VARCHAR(20) NOT NULL,
@@ -161,10 +165,62 @@ CREATE TABLE IF NOT EXISTS website_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Binary media stored in DB (business + site logos)
+CREATE TABLE IF NOT EXISTS stored_images (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind VARCHAR(40) NOT NULL,
+  ref_id UUID NOT NULL,
+  mime_type VARCHAR(100) NOT NULL,
+  bytes BYTEA NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (kind, ref_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stored_images_kind_ref ON stored_images(kind, ref_id);
+
+-- Team seats for business portal logins
+CREATE TABLE IF NOT EXISTS business_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  email VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL DEFAULT 'member'
+    CHECK (role IN ('owner', 'admin', 'member')),
+  status VARCHAR(20) NOT NULL DEFAULT 'invited'
+    CHECK (status IN ('active', 'invited', 'disabled')),
+  invite_token VARCHAR(255) UNIQUE,
+  invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  invited_at TIMESTAMPTZ DEFAULT NOW(),
+  accepted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (business_id, email)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS business_members_one_active_user
+  ON business_members (user_id)
+  WHERE user_id IS NOT NULL AND status = 'active';
+
+-- CRM-managed Square subscription plans
+CREATE TABLE IF NOT EXISTS billing_plans (
+  plan_key VARCHAR(20) PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+  currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+  cadence VARCHAR(20) NOT NULL DEFAULT 'MONTHLY',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  square_plan_id VARCHAR(255),
+  square_variation_id VARCHAR(255),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Allow longer logo URLs (media API paths with cache-buster)
+ALTER TABLE businesses ALTER COLUMN logo_url TYPE TEXT;
+
 CREATE TABLE IF NOT EXISTS business_pricing_content (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   hero_title VARCHAR(255) NOT NULL DEFAULT 'Turn trust into growth with Check A Review',
-  hero_subtitle TEXT NOT NULL DEFAULT 'Launch faster with plans built for growing brands, established teams, and enterprise businesses that need more visibility from reviews.',
+  hero_subtitle TEXT NOT NULL DEFAULT 'Launch faster with plans built for growing brands and established teams that need more visibility from reviews.',
   billing_note TEXT NOT NULL DEFAULT 'Choose the plan that fits your business today and scale up when you need more review reach, insight, and conversion tools.',
   trust_badge VARCHAR(255) NOT NULL DEFAULT '14-day free trial on paid plans',
   logos JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -225,6 +281,12 @@ CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_review_invitations_business_id ON review_invitations(business_id);
+
+-- Square billing columns for existing databases
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_customer_id VARCHAR(255);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_subscription_id VARCHAR(255);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_plan VARCHAR(20);
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id VARCHAR(255);
 
 -- Insert default website settings
 INSERT INTO website_settings (site_name, support_email)

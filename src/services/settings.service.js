@@ -1,5 +1,10 @@
 import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
+import {
+  MEDIA_KIND,
+  mediaService,
+  siteLogoPublicPath,
+} from './media.service.js'
 
 const DEFAULTS = {
   aiModerationEnabled: true,
@@ -50,13 +55,27 @@ export const settingsService = {
     )
     const row = result.rows[0] || {}
     const siteName = row.site_name || 'Check A Review'
-    const logoPath = row.logo_url || '/static/logo-check-a-review.png'
+    const stored = await mediaService.getImage(MEDIA_KIND.SITE_LOGO)
+    const logoPath = stored
+      ? siteLogoPublicPath(new Date(stored.updated_at).getTime())
+      : row.logo_url || '/static/logo-check-a-review.png'
     return {
       siteName,
       supportEmail: row.support_email || 'support@checkareview.com',
       logoUrl: absoluteMediaUrl(logoPath),
       logoPath,
     }
+  },
+
+  async updateSiteLogoFromUpload({ buffer, mimeType } = {}) {
+    await ensureLogoColumn()
+    await mediaService.upsertImage({
+      kind: MEDIA_KIND.SITE_LOGO,
+      mimeType,
+      buffer,
+    })
+    const logoUrl = siteLogoPublicPath()
+    return this.updateSiteLogo(logoUrl)
   },
 
   async updateSiteLogo(logoUrl) {
@@ -80,5 +99,10 @@ export const settingsService = {
       [logoUrl, existing.rows[0].id],
     )
     return result.rows[0]
+  },
+
+  async removeSiteLogo() {
+    await mediaService.deleteImage(MEDIA_KIND.SITE_LOGO)
+    return this.updateSiteLogo(null)
   },
 }

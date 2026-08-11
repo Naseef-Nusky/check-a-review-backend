@@ -184,6 +184,9 @@ async function createBusinessForUser(user, { category, website, phone, descripti
     bizResult.rows[0].id,
   ])
 
+  const { ensureOwnerMembership } = await import('./businessAccess.service.js')
+  await ensureOwnerMembership(bizResult.rows[0].id, user.id, user.email)
+
   const { notificationService } = await import('./notification.service.js')
   await notificationService.notifyCrmStaff(
     'New business pending approval',

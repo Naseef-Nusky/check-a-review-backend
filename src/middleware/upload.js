@@ -87,6 +87,23 @@ export const logoUpload = createImageUpload({
   errorMessage: 'Invalid logo format. Use PNG, JPG, or WEBP (max 2MB, square recommended).',
 })
 
+/** Memory storage — used when persisting logos in PostgreSQL instead of disk. */
+export const logoUploadMemory = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase()
+    if (!LOGO_MIME_TYPES.has(file.mimetype) || !LOGO_EXTENSIONS.has(ext)) {
+      return cb(
+        new AppError('Invalid logo format. Use PNG, JPG, or WEBP (max 2MB, square recommended).', 400),
+      )
+    }
+    cb(null, true)
+  },
+  limits: {
+    fileSize: 2 * 1024 * 1024,
+  },
+})
+
 export const avatarUpload = createImageUpload({
   destination: avatarsDir,
   prefix: 'avatar',

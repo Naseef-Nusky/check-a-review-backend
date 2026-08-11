@@ -17,10 +17,19 @@ export const env = {
   SENDGRID_API_KEY: process.env.SENDGRID_API_KEY || '',
   SENDGRID_FROM_EMAIL: process.env.SENDGRID_FROM_EMAIL || 'noreply@checkareview.com',
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
-  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || '',
-  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '',
-  STRIPE_STARTER_PRICE_ID: process.env.STRIPE_STARTER_PRICE_ID || '',
-  STRIPE_PREMIUM_PRICE_ID: process.env.STRIPE_PREMIUM_PRICE_ID || '',
+  // Square billing (sandbox by default)
+  SQUARE_ENVIRONMENT: process.env.SQUARE_ENVIRONMENT || 'sandbox',
+  SQUARE_ACCESS_TOKEN: process.env.SQUARE_ACCESS_TOKEN || '',
+  SQUARE_LOCATION_ID: process.env.SQUARE_LOCATION_ID || '',
+  SQUARE_WEBHOOK_SIGNATURE_KEY: process.env.SQUARE_WEBHOOK_SIGNATURE_KEY || '',
+  SQUARE_WEBHOOK_NOTIFICATION_URL:
+    process.env.SQUARE_WEBHOOK_NOTIFICATION_URL ||
+    `http://localhost:${process.env.PORT || 5001}/api/subscriptions/webhook`,
+  SQUARE_STARTER_PLAN_ID: process.env.SQUARE_STARTER_PLAN_ID || '',
+  SQUARE_PREMIUM_PLAN_ID: process.env.SQUARE_PREMIUM_PLAN_ID || '',
+  SQUARE_STARTER_AMOUNT_CENTS: process.env.SQUARE_STARTER_AMOUNT_CENTS || '2900',
+  SQUARE_PREMIUM_AMOUNT_CENTS: process.env.SQUARE_PREMIUM_AMOUNT_CENTS || '19900',
+  SQUARE_CURRENCY: process.env.SQUARE_CURRENCY || 'USD',
   AI_PROVIDER: process.env.AI_PROVIDER || 'gemini',
   AI_API_KEY: process.env.AI_API_KEY || '',
   AI_MODEL: process.env.AI_MODEL || 'gemini-flash-latest',

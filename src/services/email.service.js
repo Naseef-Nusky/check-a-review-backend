@@ -5,6 +5,7 @@ import sgMail from '@sendgrid/mail'
 import { env } from '../config/env.js'
 import { settingsService } from './settings.service.js'
 import { uploadsRoot } from '../middleware/upload.js'
+import { MEDIA_KIND, mediaService } from './media.service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -68,6 +69,7 @@ function statCard({ value, label }) {
 function resolveLogoFilePath(logoPath) {
   if (!logoPath) return null
   if (/^https?:\/\//i.test(logoPath)) return null
+  if (String(logoPath).includes('/api/media/')) return null
 
   const normalized = logoPath.replace(/\\/g, '/')
   if (normalized.startsWith('/uploads/')) {
@@ -90,7 +92,20 @@ function mimeFromPath(filePath) {
   return 'image/png'
 }
 
-function loadInlineLogo(logoPath) {
+async function loadInlineLogo(logoPath) {
+  if (logoPath && String(logoPath).includes('/api/media/site/logo')) {
+    const image = await mediaService.getImage(MEDIA_KIND.SITE_LOGO)
+    if (image?.bytes) {
+      const payload = Buffer.isBuffer(image.bytes) ? image.bytes : Buffer.from(image.bytes)
+      return {
+        content: payload.toString('base64'),
+        type: image.mime_type || 'image/png',
+        filename: 'site-logo.png',
+        contentId: LOGO_CID,
+      }
+    }
+  }
+
   const filePath = resolveLogoFilePath(logoPath)
   if (!filePath || !fs.existsSync(filePath)) return null
 
@@ -119,7 +134,7 @@ async function renderEmailTemplate({
 }) {
   const brand = await settingsService.getBrandSettings()
   const appName = brand.siteName || DEFAULT_APP_NAME
-  const inlineLogo = loadInlineLogo(brand.logoPath)
+  const inlineLogo = await loadInlineLogo(brand.logoPath)
   // Prefer CID (works even when API URL is localhost). Fall back to absolute URL if needed.
   const logoSrc = inlineLogo ? `cid:${LOGO_CID}` : brand.logoUrl
   const resolvedEyebrow = eyebrow || appName
@@ -487,6 +502,25 @@ export const emailService = {
         body: 'If you already have an account, you can log in and write your review right away. If not, you can sign up first and then continue.',
         primaryCta: { label: 'Write a review', href: inviteUrl },
         footerNote: 'You are receiving this because a business invited you to leave a review on Check A Review.',
+      },
+    })
+  },
+
+  async sendTeamInvitation(to, { businessName, inviterName, inviteUrl, memberName }) {
+    const APP_NAME = await appName()
+    const greeting = memberName
+      ? `Hi ${escapeHtml(memberName)},`
+      : 'Hi,'
+    await sendTemplatedEmail({
+      to,
+      subject: `${inviterName} invited you to ${businessName} on ${APP_NAME}`,
+      template: {
+        eyebrow: 'Team invitation',
+        title: `Join ${escapeHtml(businessName)}`,
+        intro: `${greeting} <strong>${escapeHtml(inviterName)}</strong> invited you to the ${escapeHtml(businessName)} business dashboard on ${APP_NAME}.`,
+        body: 'Accept the invitation to create your login (or sign in with this email) and help manage reviews for this business.',
+        primaryCta: { label: 'Accept invitation', href: inviteUrl },
+        footerNote: 'You are receiving this because a business owner invited you to their Check A Review team.',
       },
     })
   },

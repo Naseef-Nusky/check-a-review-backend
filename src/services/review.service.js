@@ -6,6 +6,7 @@ import { aiModerationService } from './aiModeration.service.js'
 import { emailService } from './email.service.js'
 import { businessService } from './business.service.js'
 import { notificationService } from './notification.service.js'
+import { assertBusinessAccess } from './businessAccess.service.js'
 
 async function getBusinessOwner(businessId) {
   const owner = await query(
@@ -271,12 +272,12 @@ export const reviewService = {
 
   async reply(reviewId, userId, reply) {
     const review = await query(
-      `SELECT r.*, b.user_id as business_owner_id, b.name as business_name
+      `SELECT r.*, b.id as business_id, b.name as business_name
        FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE r.id = $1`,
       [reviewId],
     )
     if (review.rows.length === 0) throw new AppError('Review not found', 404)
-    if (review.rows[0].business_owner_id !== userId) throw new AppError('Access denied', 403)
+    await assertBusinessAccess(review.rows[0].business_id, userId)
 
     const existing = review.rows[0]
     const isEdit = Boolean(existing.business_reply)
@@ -355,8 +356,9 @@ export const reviewService = {
   },
 
   async sendInvitation(businessId, userId, email) {
-    const business = await query('SELECT * FROM businesses WHERE id = $1 AND user_id = $2', [businessId, userId])
-    if (business.rows.length === 0) throw new AppError('Business not found or access denied', 403)
+    await assertBusinessAccess(businessId, userId)
+    const business = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
+    if (business.rows.length === 0) throw new AppError('Business not found', 404)
 
     const token = uuidv4()
     const result = await query(
@@ -398,8 +400,7 @@ export const reviewService = {
   },
 
   async getInvitations(businessId, userId) {
-    const business = await query('SELECT id FROM businesses WHERE id = $1 AND user_id = $2', [businessId, userId])
-    if (business.rows.length === 0) throw new AppError('Access denied', 403)
+    await assertBusinessAccess(businessId, userId)
 
     const result = await query(
       'SELECT * FROM review_invitations WHERE business_id = $1 ORDER BY sent_at DESC',

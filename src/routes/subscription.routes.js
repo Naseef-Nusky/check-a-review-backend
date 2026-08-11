@@ -3,15 +3,23 @@ import { body } from 'express-validator'
 import { validate } from '../middleware/validate.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { subscriptionService } from '../services/subscription.service.js'
-import { stripeService } from '../services/stripe.service.js'
-import { businessService } from '../services/business.service.js'
+import { squareService } from '../services/square.service.js'
 
 const router = Router()
 
 router.get('/:businessId', authenticate, authorize('business'), async (req, res, next) => {
   try {
+    const { assertBusinessAccess } = await import('../services/businessAccess.service.js')
+    await assertBusinessAccess(req.params.businessId, req.user.id)
     const subscription = await subscriptionService.getByBusiness(req.params.businessId)
-    res.json({ success: true, data: subscription })
+    res.json({
+      success: true,
+      data: {
+        ...subscription,
+        provider: 'square',
+        squareConfigured: squareService.hasCredentials(),
+      },
+    })
   } catch (err) {
     next(err)
   }
@@ -56,12 +64,26 @@ router.post(
   },
 )
 
+router.post(
+  '/cancel',
+  authenticate,
+  authorize('business'),
+  [body('businessId').notEmpty()],
+  validate,
+  async (req, res, next) => {
+    try {
+      const subscription = await subscriptionService.cancelSubscription(req.body.businessId, req.user.id)
+      res.json({ success: true, data: subscription })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.get('/:businessId/payments', authenticate, authorize('business'), async (req, res, next) => {
   try {
-    const business = await businessService.getByUserId(req.user.id)
-    if (business.id !== req.params.businessId) {
-      return res.status(403).json({ success: false, message: 'Access denied' })
-    }
+    const { assertBusinessAccess } = await import('../services/businessAccess.service.js')
+    await assertBusinessAccess(req.params.businessId, req.user.id)
     const payments = await subscriptionService.getPaymentHistory(req.params.businessId)
     res.json({ success: true, data: payments })
   } catch (err) {
@@ -71,8 +93,8 @@ router.get('/:businessId/payments', authenticate, authorize('business'), async (
 
 router.post('/webhook', async (req, res, next) => {
   try {
-    const signature = req.headers['stripe-signature']
-    const event = stripeService.constructWebhookEvent(req.body, signature)
+    const signature = req.headers['x-square-hmacsha256-signature']
+    const event = await squareService.verifyWebhook(req.body, signature)
     await subscriptionService.handleWebhook(event)
     res.json({ received: true })
   } catch (err) {

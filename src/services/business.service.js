@@ -4,6 +4,12 @@ import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
 import { emailService } from './email.service.js'
 import { notificationService } from './notification.service.js'
+import {
+  MEDIA_KIND,
+  businessLogoPublicPath,
+  mediaService,
+} from './media.service.js'
+import { assertBusinessAccess, getBusinessForUser } from './businessAccess.service.js'
 
 let statusColumnReady = false
 
@@ -105,14 +111,11 @@ export const businessService = {
 
   async getByUserId(userId) {
     await ensureBusinessStatusColumn()
-    const result = await query('SELECT * FROM businesses WHERE user_id = $1', [userId])
-    if (result.rows.length === 0) throw new AppError('Business not found', 404)
-    return result.rows[0]
+    return getBusinessForUser(userId)
   },
 
   async update(businessId, userId, data) {
-    const owner = await query('SELECT id FROM businesses WHERE id = $1 AND user_id = $2', [businessId, userId])
-    if (owner.rows.length === 0) throw new AppError('Business not found or access denied', 403)
+    await assertBusinessAccess(businessId, userId)
 
     let category = data.category
     if (category) {
@@ -122,6 +125,14 @@ export const businessService = {
         // Allow existing/legacy category names so profile edits still save
         category = String(category).trim()
       }
+    }
+
+    const clearingLogo =
+      (data.logoUrl !== undefined || data.logo_url !== undefined) &&
+      !(data.logoUrl || data.logo_url)
+
+    if (clearingLogo) {
+      await mediaService.deleteImage(MEDIA_KIND.BUSINESS_LOGO, businessId)
     }
 
     const result = await query(
@@ -145,7 +156,7 @@ export const businessService = {
         data.email !== undefined ? data.email : null,
         data.phone !== undefined ? data.phone : null,
         data.address !== undefined ? data.address : null,
-        data.logoUrl ?? data.logo_url ?? null,
+        clearingLogo ? null : data.logoUrl ?? data.logo_url ?? null,
         data.name ? slugify(data.name) : null,
         businessId,
         data.logoUrl !== undefined || data.logo_url !== undefined,
@@ -154,10 +165,26 @@ export const businessService = {
     return result.rows[0]
   },
 
-  async updateLogo(businessId, userId, logoUrl) {
-    const owner = await query('SELECT id FROM businesses WHERE id = $1 AND user_id = $2', [businessId, userId])
-    if (owner.rows.length === 0) throw new AppError('Business not found or access denied', 403)
+  async updateLogo(businessId, userId, { buffer, mimeType, clear = false } = {}) {
+    await assertBusinessAccess(businessId, userId)
 
+    if (clear || (!buffer && !mimeType)) {
+      await mediaService.deleteImage(MEDIA_KIND.BUSINESS_LOGO, businessId)
+      const cleared = await query(
+        `UPDATE businesses SET logo_url = NULL, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [businessId],
+      )
+      return cleared.rows[0]
+    }
+
+    await mediaService.upsertImage({
+      kind: MEDIA_KIND.BUSINESS_LOGO,
+      refId: businessId,
+      mimeType,
+      buffer,
+    })
+
+    const logoUrl = businessLogoPublicPath(businessId)
     const result = await query(
       `UPDATE businesses SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
       [logoUrl, businessId],
@@ -165,9 +192,18 @@ export const businessService = {
     return result.rows[0]
   },
 
+  async clearLogoById(businessId) {
+    await mediaService.deleteImage(MEDIA_KIND.BUSINESS_LOGO, businessId)
+    const result = await query(
+      `UPDATE businesses SET logo_url = NULL, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [businessId],
+    )
+    return result.rows[0] || null
+  },
+
   async getAnalytics(businessId, userId) {
-    const business = await this.getByUserId(userId)
-    if (business.id !== businessId) throw new AppError('Access denied', 403)
+    await assertBusinessAccess(businessId, userId)
+    const business = await this.getBySlugOrId(businessId, { includeUnpublished: true })
 
     const breakdown = await query(
       `SELECT rating, COUNT(*) as count FROM reviews

@@ -7,6 +7,8 @@ import subscriptionRoutes from './subscription.routes.js'
 import adminRoutes from './admin.routes.js'
 import contactRoutes from './contact.routes.js'
 import widgetRoutes from './widget.routes.js'
+import mediaRoutes from './media.routes.js'
+import teamRoutes from './team.routes.js'
 
 const router = Router()
 
@@ -15,10 +17,12 @@ router.get('/health', (_req, res) => {
 })
 
 router.use('/auth', authRoutes)
+router.use('/media', mediaRoutes)
 router.use('/businesses', businessRoutes)
 router.use('/reviews', reviewRoutes)
 router.use('/notifications', notificationRoutes)
 router.use('/subscriptions', subscriptionRoutes)
+router.use('/team', teamRoutes)
 router.use('/admin', adminRoutes)
 router.use('/contact', contactRoutes)
 router.use('/widget', widgetRoutes)

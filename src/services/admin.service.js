@@ -255,6 +255,8 @@ export const adminService = {
       `SELECT b.*,
               s.plan,
               s.status as subscription_status,
+              s.square_customer_id,
+              s.square_subscription_id,
               s.stripe_customer_id,
               s.stripe_subscription_id,
               s.current_period_end,
@@ -355,6 +357,9 @@ export const adminService = {
 
     const businessId = businessResult.rows[0].id
     await query(`INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'free')`, [businessId])
+
+    const { ensureOwnerMembership } = await import('./businessAccess.service.js')
+    await ensureOwnerMembership(businessId, userResult.rows[0].id, emailLower)
 
     const result = await query(
       `SELECT b.*, s.plan, u.email as owner_email
@@ -568,9 +573,33 @@ export const adminService = {
     return settingsService.updateSiteLogo(logoUrl)
   },
 
+  async updateSiteLogoFromUpload(file) {
+    const { settingsService } = await import('./settings.service.js')
+    return settingsService.updateSiteLogoFromUpload(file)
+  },
+
+  async setBusinessLogo(businessId, { buffer, mimeType }) {
+    const { MEDIA_KIND, businessLogoPublicPath, mediaService } = await import('./media.service.js')
+    const existing = await query('SELECT id FROM businesses WHERE id = $1', [businessId])
+    if (existing.rows.length === 0) throw new AppError('Business not found', 404)
+
+    await mediaService.upsertImage({
+      kind: MEDIA_KIND.BUSINESS_LOGO,
+      refId: businessId,
+      mimeType,
+      buffer,
+    })
+    const logoUrl = businessLogoPublicPath(businessId)
+    const result = await query(
+      `UPDATE businesses SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [logoUrl, businessId],
+    )
+    return result.rows[0]
+  },
+
   async removeSiteLogo() {
     const { settingsService } = await import('./settings.service.js')
-    return settingsService.updateSiteLogo(null)
+    return settingsService.removeSiteLogo()
   },
 
   async getBusinessPricingContent() {
@@ -579,5 +608,30 @@ export const adminService = {
 
   async updateBusinessPricingContent(data) {
     return pricingContentService.updateBusinessPricingContent(data)
+  },
+
+  async listBillingPlans() {
+    const { billingPlansService } = await import('./billingPlans.service.js')
+    const { squareService } = await import('./square.service.js')
+    const plans = await billingPlansService.list()
+    return {
+      squareConfigured: squareService.hasCredentials(),
+      plans,
+    }
+  },
+
+  async updateBillingPlan(planKey, data) {
+    const { billingPlansService } = await import('./billingPlans.service.js')
+    return billingPlansService.update(planKey, data)
+  },
+
+  async syncBillingPlan(planKey) {
+    const { billingPlansService } = await import('./billingPlans.service.js')
+    return billingPlansService.syncToSquare(planKey)
+  },
+
+  async syncAllBillingPlans() {
+    const { billingPlansService } = await import('./billingPlans.service.js')
+    return billingPlansService.syncAllToSquare()
   },
 }
