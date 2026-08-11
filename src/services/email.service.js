@@ -23,7 +23,7 @@ const CARD_BG = '#FFFFFF'
 const LOGO_BG = '#0B1F3A'
 const TITLE_BG = '#F8FAFC'
 const FOOTER_BG = '#F1F5F9'
-const LOGO_CID = 'brand-logo'
+const LOGO_CID = 'brandlogo'
 
 if (hasValidSendGridKey) {
   sgMail.setApiKey(env.SENDGRID_API_KEY)
@@ -66,6 +66,10 @@ function statCard({ value, label }) {
   `
 }
 
+function isLocalMediaUrl(url = '') {
+  return /localhost|127\.0\.0\.1/i.test(String(url))
+}
+
 function resolveLogoFilePath(logoPath) {
   if (!logoPath) return null
   if (/^https?:\/\//i.test(logoPath)) return null
@@ -92,11 +96,24 @@ function mimeFromPath(filePath) {
   return 'image/png'
 }
 
+function bytesToBuffer(bytes) {
+  if (!bytes) return null
+  if (Buffer.isBuffer(bytes)) return bytes
+  if (bytes instanceof Uint8Array) return Buffer.from(bytes)
+  if (typeof bytes === 'string') return Buffer.from(bytes, 'base64')
+  try {
+    return Buffer.from(bytes)
+  } catch {
+    return null
+  }
+}
+
 async function loadInlineLogo(logoPath) {
-  if (logoPath && String(logoPath).includes('/api/media/site/logo')) {
+  // Prefer DB-backed site logo first (CRM Settings upload).
+  try {
     const image = await mediaService.getImage(MEDIA_KIND.SITE_LOGO)
-    if (image?.bytes) {
-      const payload = Buffer.isBuffer(image.bytes) ? image.bytes : Buffer.from(image.bytes)
+    const payload = bytesToBuffer(image?.bytes)
+    if (payload?.length) {
       return {
         content: payload.toString('base64'),
         type: image.mime_type || 'image/png',
@@ -104,19 +121,18 @@ async function loadInlineLogo(logoPath) {
         contentId: LOGO_CID,
       }
     }
+  } catch (err) {
+    console.warn('[Email] Could not load site logo from database:', err.message || err)
   }
 
+  // Fallback for legacy /uploads or /static logo paths.
   const filePath = resolveLogoFilePath(logoPath)
   if (!filePath || !fs.existsSync(filePath)) return null
 
-  const content = fs.readFileSync(filePath).toString('base64')
-  const type = mimeFromPath(filePath)
-  const filename = path.basename(filePath)
-
   return {
-    content,
-    type,
-    filename,
+    content: fs.readFileSync(filePath).toString('base64'),
+    type: mimeFromPath(filePath),
+    filename: path.basename(filePath),
     contentId: LOGO_CID,
   }
 }
@@ -135,11 +151,18 @@ async function renderEmailTemplate({
   const brand = await settingsService.getBrandSettings()
   const appName = brand.siteName || DEFAULT_APP_NAME
   const inlineLogo = await loadInlineLogo(brand.logoPath)
-  // Prefer CID (works even when API URL is localhost). Fall back to absolute URL if needed.
-  const logoSrc = inlineLogo ? `cid:${LOGO_CID}` : brand.logoUrl
+  // Prefer CID so logos work even when PUBLIC_API_URL is localhost.
+  // Never fall back to a localhost URL — email clients cannot load it.
+  const remoteLogo =
+    brand.logoUrl && !isLocalMediaUrl(brand.logoUrl) ? brand.logoUrl : ''
+  const logoSrc = inlineLogo ? `cid:${inlineLogo.contentId}` : remoteLogo
   const resolvedEyebrow = eyebrow || appName
   const resolvedFooter =
     footerNote || `This message was sent because of activity on your ${appName} account.`
+
+  if (!inlineLogo && !remoteLogo) {
+    console.warn('[Email] No embeddable site logo found — using text brand header')
+  }
 
   const logoBlock = logoSrc
     ? `
@@ -147,7 +170,8 @@ async function renderEmailTemplate({
         src="${escapeHtml(logoSrc)}"
         alt="${escapeHtml(appName)}"
         width="180"
-        style="display:block;width:180px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;"
+        height="auto"
+        style="display:block;margin:0 auto;width:180px;max-width:70%;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;background:#ffffff;border-radius:8px;padding:8px;"
       />
     `
     : `
@@ -292,10 +316,11 @@ async function sendViaSendGrid({ to, subject, html, inlineLogo }) {
     message.attachments = [
       {
         content: inlineLogo.content,
-        filename: inlineLogo.filename,
-        type: inlineLogo.type,
+        filename: inlineLogo.filename || 'site-logo.png',
+        type: inlineLogo.type || 'image/png',
         disposition: 'inline',
         content_id: inlineLogo.contentId,
+        contentId: inlineLogo.contentId,
       },
     ]
   }
@@ -320,9 +345,12 @@ async function sendViaResend({ to, subject, html, inlineLogo }) {
     body.attachments = [
       {
         content: inlineLogo.content,
-        filename: inlineLogo.filename,
+        filename: inlineLogo.filename || 'site-logo.png',
+        content_id: inlineLogo.contentId,
         contentId: inlineLogo.contentId,
-        content_type: inlineLogo.type,
+        content_type: inlineLogo.type || 'image/png',
+        type: inlineLogo.type || 'image/png',
+        disposition: 'inline',
       },
     ]
   }

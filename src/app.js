@@ -33,7 +33,26 @@ app.use((req, res, next) => {
   })(req, res, next)
 })
 app.use(cors({
-  origin: env.CLIENT_URL.split(',').map((url) => url.trim()),
+  origin(origin, callback) {
+    const allowed = String(env.CLIENT_URL || '')
+      .split(',')
+      .map((url) => url.trim())
+      .filter(Boolean)
+
+    // Non-browser clients / same-origin proxy requests have no Origin header.
+    if (!origin) return callback(null, true)
+    if (allowed.includes(origin)) return callback(null, true)
+
+    // In development, allow any localhost Vite port (5173+ fallbacks like 5176).
+    if (
+      env.NODE_ENV === 'development' &&
+      /^http:\/\/(localhost|127\.0\.0\.1):\d+$/i.test(origin)
+    ) {
+      return callback(null, true)
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`))
+  },
   credentials: true,
 }))
 app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'))

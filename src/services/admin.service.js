@@ -541,9 +541,14 @@ export const adminService = {
 
   async getSettings() {
     const { settingsService } = await import('./settings.service.js')
-    await settingsService.getBrandSettings()
+    const brand = await settingsService.getBrandSettings()
     const result = await query('SELECT * FROM website_settings LIMIT 1')
-    return result.rows[0]
+    const row = result.rows[0] || {}
+    return {
+      ...row,
+      // Prefer media path from DB-backed brand logo so CRM preview stays in sync
+      logo_url: brand.logoPath || row.logo_url || null,
+    }
   },
 
   async updateSettings(data) {

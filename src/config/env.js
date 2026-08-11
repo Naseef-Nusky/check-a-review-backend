@@ -5,7 +5,7 @@ dotenv.config()
 export const env = {
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
-  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173,http://localhost:5174,http://localhost:5175',
+  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176',
   BUSINESS_PORTAL_URL: process.env.BUSINESS_PORTAL_URL || 'http://localhost:5175',
   PUBLIC_SITE_URL: process.env.PUBLIC_SITE_URL || 'http://localhost:5173',
   PUBLIC_API_URL: process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 5000}`,
