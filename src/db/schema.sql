@@ -201,6 +201,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS business_members_one_active_user
   ON business_members (user_id)
   WHERE user_id IS NOT NULL AND status = 'active';
 
+-- Domains / websites managed per business (plan-limited)
+CREATE TABLE IF NOT EXISTS business_domains (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  domain VARCHAR(255) NOT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  status VARCHAR(20) NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'disabled')),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (business_id, domain)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS business_domains_one_primary
+  ON business_domains (business_id)
+  WHERE is_primary = TRUE AND status = 'active';
+
 -- CRM-managed Square subscription plans
 CREATE TABLE IF NOT EXISTS billing_plans (
   plan_key VARCHAR(20) PRIMARY KEY,

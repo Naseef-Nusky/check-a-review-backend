@@ -162,7 +162,14 @@ export const businessService = {
         data.logoUrl !== undefined || data.logo_url !== undefined,
       ],
     )
-    return result.rows[0]
+    const row = result.rows[0]
+    if (data.website !== undefined && row) {
+      const { domainService } = await import('./domain.service.js')
+      await domainService.syncFromWebsiteField(businessId, data.website, userId)
+      const refreshed = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
+      return refreshed.rows[0] || row
+    }
+    return row
   },
 
   async updateLogo(businessId, userId, { buffer, mimeType, clear = false } = {}) {

@@ -1,6 +1,9 @@
 import { Router } from 'express'
+import { env } from '../config/env.js'
+import { AppError } from '../utils/helpers.js'
 import { businessService } from '../services/business.service.js'
 import { reviewService } from '../services/review.service.js'
+import { domainService } from '../services/domain.service.js'
 
 const router = Router()
 
@@ -28,11 +31,81 @@ function absoluteUrl(req, mediaPath) {
   return `${origin}${mediaPath.startsWith('/') ? '' : '/'}${mediaPath}`
 }
 
+function extractHost(value) {
+  if (!value) return null
+  try {
+    const raw = String(value).trim()
+    const url = raw.includes('://') ? new URL(raw) : new URL(`https://${raw}`)
+    return url.hostname.replace(/^www\./i, '').toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function appAllowedHosts() {
+  const urls = [
+    env.BUSINESS_PORTAL_URL,
+    env.PUBLIC_SITE_URL,
+    env.PUBLIC_API_URL,
+    ...(String(env.CLIENT_URL || '').split(',') || []),
+  ]
+  return [...new Set(urls.map(extractHost).filter(Boolean))]
+}
+
+function renderBlockedHtml({ title, message, domains = [] }) {
+  const domainList = domains.length
+    ? `<p style="margin:12px 0 0;font-size:12px;color:#64748B;">Allowed domains: ${domains
+        .map((d) => escapeHtml(d))
+        .join(', ')}</p>`
+    : ''
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+  </head>
+  <body style="margin:0;font-family:Arial,Helvetica,sans-serif;background:transparent;">
+    <div style="border:1px solid #FECACA;border-radius:12px;background:#FEF2F2;padding:16px;color:#991B1B;">
+      <div style="font-size:14px;font-weight:700;">${escapeHtml(title)}</div>
+      <p style="margin:8px 0 0;font-size:13px;line-height:1.45;">${escapeHtml(message)}</p>
+      ${domainList}
+    </div>
+  </body>
+</html>`
+}
+
+async function assertWidgetDomainAccess(req, businessId) {
+  const preview =
+    req.query.preview === '1' ||
+    req.query.preview === 'true' ||
+    String(req.query.mode || '').toLowerCase() === 'preview'
+
+  const host =
+    extractHost(req.get('referer')) ||
+    extractHost(req.get('origin')) ||
+    extractHost(req.query.host)
+
+  const access = await domainService.getWidgetAccess(businessId, {
+    host,
+    preview,
+    appHosts: appAllowedHosts(),
+  })
+
+  if (!access.allowed) {
+    throw new AppError(access.message, 403, access.code)
+  }
+
+  return access
+}
+
 async function loadWidgetData(req, identifier) {
   const business = await businessService.getBySlugOrId(identifier)
+  const access = await assertWidgetDomainAccess(req, business.id)
   const { reviews } = await reviewService.getByBusiness(business.id, { limit: 5 })
 
   return {
+    businessId: business.id,
     businessName: business.name,
     // Absolute so the copied embed snippet works on the customer's own domain,
     // where a relative /api path would resolve against their site instead of ours.
@@ -42,6 +115,8 @@ async function loadWidgetData(req, identifier) {
     averageRating: parseFloat(business.average_rating) || 0,
     reviewCount: business.review_count || 0,
     trustScore: parseFloat(business.trust_score) || 0,
+    domains: access.domains,
+    domainValidated: true,
     recentReviews: reviews.map((r) => ({
       rating: r.rating,
       title: r.title,
@@ -153,6 +228,29 @@ function renderWidgetHtml(data, requestedStyle = 'classic') {
 </html>`
 }
 
+router.get('/:businessId/status', async (req, res, next) => {
+  try {
+    const business = await businessService.getBySlugOrId(req.params.businessId, {
+      includeUnpublished: true,
+    })
+    const domains = await domainService.listActiveDomainHosts(business.id)
+    res.json({
+      success: true,
+      data: {
+        businessId: business.id,
+        hasDomains: domains.length > 0,
+        domains,
+        message:
+          domains.length === 0
+            ? 'Add at least one domain before embedding the review widget.'
+            : 'Widget can be embedded on your registered domains.',
+      },
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/:businessId/data', async (req, res, next) => {
   try {
     const widgetData = await loadWidgetData(req, req.params.businessId)
@@ -172,6 +270,28 @@ router.get('/:businessId', async (req, res, next) => {
 
     res.type('html').send(renderWidgetHtml(widgetData, String(req.query.style || 'classic')))
   } catch (err) {
+    if (err instanceof AppError && (err.code === 'DOMAIN_REQUIRED' || err.code === 'DOMAIN_NOT_ALLOWED')) {
+      const wantsJson = req.query.format === 'json' || req.accepts(['html', 'json']) === 'json'
+      if (wantsJson) return next(err)
+
+      let domains = []
+      try {
+        const business = await businessService.getBySlugOrId(req.params.businessId, {
+          includeUnpublished: true,
+        })
+        domains = await domainService.listActiveDomainHosts(business.id)
+      } catch {
+        domains = []
+      }
+
+      return res.status(err.statusCode || 403).type('html').send(
+        renderBlockedHtml({
+          title: err.code === 'DOMAIN_REQUIRED' ? 'Domain required' : 'Domain not allowed',
+          message: err.message,
+          domains,
+        }),
+      )
+    }
     next(err)
   }
 })

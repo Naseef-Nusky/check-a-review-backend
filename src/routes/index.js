@@ -9,6 +9,7 @@ import contactRoutes from './contact.routes.js'
 import widgetRoutes from './widget.routes.js'
 import mediaRoutes from './media.routes.js'
 import teamRoutes from './team.routes.js'
+import domainRoutes from './domain.routes.js'
 
 const router = Router()
 
@@ -23,6 +24,7 @@ router.use('/reviews', reviewRoutes)
 router.use('/notifications', notificationRoutes)
 router.use('/subscriptions', subscriptionRoutes)
 router.use('/team', teamRoutes)
+router.use('/domains', domainRoutes)
 router.use('/admin', adminRoutes)
 router.use('/contact', contactRoutes)
 router.use('/widget', widgetRoutes)
