@@ -279,6 +279,7 @@ router.get('/:businessId/status', async (req, res, next) => {
 router.get('/:businessId/data', async (req, res, next) => {
   try {
     const widgetData = await loadWidgetData(req, req.params.businessId)
+    await assertWidgetAccess(widgetData.businessId, String(req.query.style || ''))
     res.json({ success: true, data: widgetData })
   } catch (err) {
     next(err)
