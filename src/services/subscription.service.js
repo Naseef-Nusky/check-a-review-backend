@@ -108,7 +108,7 @@ export const subscriptionService = {
         planId: planRow.squarePlanId,
         variationId: planRow.squareVariationId,
         amountCents,
-        currency: 'USD',
+        currency: planRow.currency,
         name: planRow.name,
       },
       businessId,

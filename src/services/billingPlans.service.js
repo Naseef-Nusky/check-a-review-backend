@@ -2,7 +2,7 @@ import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { AppError } from '../utils/helpers.js'
 import { squareService } from './square.service.js'
-import { PAID_SQUARE_PLANS, PLAN_CATALOG, formatLimit, getPlan, isUnlimited } from '../config/planCatalog.js'
+import { CATALOG_VERSION, PAID_SQUARE_PLANS, PLAN_CATALOG, formatLimit, getPlan, isUnlimited } from '../config/planCatalog.js'
 
 const BILLABLE_KEYS = ['starter', 'plus', 'premium', 'enterprise']
 
@@ -15,7 +15,7 @@ async function ensureBillingPlansTable() {
       plan_key VARCHAR(20) PRIMARY KEY,
       name VARCHAR(120) NOT NULL,
       amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
-      currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+      currency VARCHAR(10) NOT NULL DEFAULT 'GBP',
       cadence VARCHAR(20) NOT NULL DEFAULT 'YEARLY',
       active BOOLEAN NOT NULL DEFAULT TRUE,
       square_plan_id VARCHAR(255),
@@ -43,7 +43,7 @@ async function ensureBillingPlansTable() {
          invitations_per_month, widgets_limit, users_limit, domains_limit, integrations_limit,
          catalog_version
        ) VALUES (
-         $1, $2, $3, $4, 'USD', $5, $6,
+         $1, $2, $3, $4, 'GBP', $5, $6,
          $7, $8, $9,
          $10, $11, $12, $13, $14,
          $15
@@ -142,6 +142,19 @@ function UNLIMITED_FALLBACK(fallback) {
   return isUnlimited(fallback) ? Number.POSITIVE_INFINITY : fallback
 }
 
+function formatCurrencyAmount(cents, currency) {
+  const code = String(currency || 'GBP').toUpperCase()
+  try {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: code,
+      maximumFractionDigits: 0,
+    }).format((Number(cents) || 0) / 100)
+  } catch {
+    return `${code} ${((Number(cents) || 0) / 100).toFixed(0)}`
+  }
+}
+
 function mapPlan(row) {
   if (!row) return null
   const catalog = getPlan(row.plan_key)
@@ -158,7 +171,7 @@ function mapPlan(row) {
     amountCents: Number(row.amount_cents),
     monthlyAmountCents,
     monthlyDollars: monthlyAmountCents / 100,
-    currency: 'USD',
+    currency: String(row.currency || 'GBP').toUpperCase(),
     cadence: row.cadence || 'YEARLY',
     active: row.active,
     perDomain: Boolean(row.per_domain),
@@ -172,9 +185,12 @@ function mapPlan(row) {
     squarePlanId: row.square_plan_id || null,
     squareVariationId: row.square_variation_id || null,
     updatedAt: row.updated_at,
-    priceLabel: catalog.checkout === 'sales' ? 'Contact sales' : `$${(monthlyAmountCents / 100).toFixed(0)}`,
+    priceLabel:
+      catalog.checkout === 'sales'
+        ? 'Contact sales'
+        : formatCurrencyAmount(monthlyAmountCents, String(row.currency || 'GBP').toUpperCase()),
     periodLabel: catalog.periodLabel,
-    yearlyPriceLabel: `$${(Number(row.amount_cents) / 100).toFixed(0)} / year`,
+    yearlyPriceLabel: `${formatCurrencyAmount(Number(row.amount_cents), String(row.currency || 'GBP').toUpperCase())} / year`,
     synced: Boolean(row.square_plan_id),
     limitsLabel: {
       invitations: formatLimit(invitations),
@@ -229,6 +245,7 @@ export const billingPlansService = {
     }
 
     const cadence = data.cadence !== undefined ? String(data.cadence).trim().toUpperCase() : existing.cadence
+    const currency = data.currency !== undefined ? String(data.currency).trim().toUpperCase() : existing.currency
     const active = data.active !== undefined ? Boolean(data.active) : existing.active
     const amountCents =
       cadence === 'YEARLY' ? Math.round(monthlyAmountCents * 12) : Math.round(monthlyAmountCents)
@@ -239,6 +256,9 @@ export const billingPlansService = {
     }
     if (!['MONTHLY', 'YEARLY', 'WEEKLY'].includes(cadence)) {
       throw new AppError('cadence must be MONTHLY, YEARLY, or WEEKLY', 400)
+    }
+    if (!currency || currency.length !== 3) {
+      throw new AppError('currency must be a 3-letter code like GBP or USD', 400)
     }
 
     const parseLimitField = (input, current) => {
@@ -254,22 +274,23 @@ export const billingPlansService = {
        SET name = $1,
            amount_cents = $2,
            monthly_amount_cents = $3,
-           currency = 'USD',
-           cadence = $4,
-           active = $5,
-           invitations_per_month = $6,
-           widgets_limit = $7,
-           users_limit = $8,
-           domains_limit = $9,
-           integrations_limit = $10,
-           catalog_version = $11,
+           currency = $4,
+           cadence = $5,
+           active = $6,
+           invitations_per_month = $7,
+           widgets_limit = $8,
+           users_limit = $9,
+           domains_limit = $10,
+           integrations_limit = $11,
+           catalog_version = $12,
            updated_at = NOW()
-       WHERE plan_key = $12
+       WHERE plan_key = $13
        RETURNING *`,
       [
         name,
         planKey === 'enterprise' ? 0 : amountCents,
         planKey === 'enterprise' ? 0 : monthlyAmountCents,
+        currency,
         cadence,
         planKey === 'enterprise' ? false : active,
         parseLimitField(data.invitationsPerMonth, existing.invitationsPerMonth),
@@ -299,7 +320,7 @@ export const billingPlansService = {
       key: plan.key,
       name: plan.name,
       amountCents: plan.amountCents,
-      currency: 'USD',
+      currency: plan.currency,
       cadence: plan.cadence,
       trialDays: plan.trialDays,
       existingPlanId: plan.squarePlanId,

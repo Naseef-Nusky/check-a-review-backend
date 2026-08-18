@@ -33,14 +33,14 @@ function squareCadence(cadence) {
   return value
 }
 
-function buildPhases({ cadence, amountCents, trialDays = 0 }) {
+function buildPhases({ cadence, amountCents, trialDays = 0, currency = 'GBP' }) {
   const paid = {
     cadence: squareCadence(cadence),
     pricing: {
       type: 'STATIC',
       priceMoney: {
         amount: moneyAmount(amountCents),
-        currency: 'USD',
+        currency,
       },
     },
   }
@@ -53,7 +53,7 @@ function buildPhases({ cadence, amountCents, trialDays = 0 }) {
         periods: BigInt(days),
         pricing: {
           type: 'STATIC',
-          priceMoney: { amount: moneyAmount(0), currency: 'USD' },
+          priceMoney: { amount: moneyAmount(0), currency },
         },
       },
       { ...paid, ordinal: BigInt(1) },
@@ -97,7 +97,7 @@ export const squareService = {
     key,
     name,
     amountCents,
-    currency = 'USD',
+      currency = 'GBP',
     cadence = 'YEARLY',
     trialDays = 0,
     existingPlanId = null,
@@ -158,7 +158,7 @@ export const squareService = {
         subscriptionPlanVariationData: {
           name: `${name || key} ${String(cadence || 'yearly').toLowerCase()}`,
           subscriptionPlanId: planId,
-          phases: buildPhases({ cadence, amountCents, trialDays }),
+          phases: buildPhases({ cadence, amountCents, trialDays, currency }),
         },
       },
     })
@@ -215,7 +215,7 @@ export const squareService = {
         name: config.name,
         priceMoney: {
           amount: moneyAmount(config.amountCents),
-          currency: 'USD',
+          currency: config.currency || 'GBP',
         },
         locationId: env.SQUARE_LOCATION_ID,
       },
