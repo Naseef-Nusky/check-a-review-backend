@@ -13,10 +13,8 @@ export const env = {
   DATABASE_SSL: process.env.DATABASE_SSL || 'false',
   JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
-  EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'sendgrid',
   SENDGRID_API_KEY: process.env.SENDGRID_API_KEY || '',
   SENDGRID_FROM_EMAIL: process.env.SENDGRID_FROM_EMAIL || 'noreply@checkareview.com',
-  RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   // Square billing (sandbox by default)
   SQUARE_ENVIRONMENT: process.env.SQUARE_ENVIRONMENT || 'sandbox',
   SQUARE_ACCESS_TOKEN: process.env.SQUARE_ACCESS_TOKEN || '',

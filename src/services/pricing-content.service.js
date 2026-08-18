@@ -105,6 +105,12 @@ async function hydratePlansFromBilling(content = {}) {
       name: billing.name || plan.name,
       price: billing.checkout === 'sales' ? 'Contact sales' : billing.priceLabel,
       period: billing.checkout === 'sales' ? '' : billing.periodLabel,
+      ctaLabel:
+        plan.key === 'premium'
+          ? 'Buy now'
+          : plan.key === 'enterprise'
+            ? 'Coming soon'
+            : plan.ctaLabel,
       users: billing.limitsLabel?.users || plan.users,
       domains: billing.limitsLabel?.domains || plan.domains,
     }

@@ -563,10 +563,10 @@ export const adminService = {
         support_email = COALESCE($2, support_email),
         ai_moderation_enabled = COALESCE($3, ai_moderation_enabled),
         auto_publish_threshold = COALESCE($4, auto_publish_threshold),
-        email_provider = COALESCE($5, email_provider),
+        email_provider = 'sendgrid',
         updated_at = NOW()
        RETURNING *`,
-      [data.siteName, data.supportEmail, data.aiModeration, threshold, data.emailProvider],
+      [data.siteName, data.supportEmail, data.aiModeration, threshold],
     )
     return result.rows[0]
   },

@@ -74,7 +74,7 @@ async function seed() {
 
   const sampleBusinesses = [
     {
-      name: 'Free Plan Bakery',
+      name: 'Northside Bakery',
       category: 'Bakeries',
       description: 'Dummy business on the Free plan for CRM and portal testing.',
       plan: 'free',
@@ -86,7 +86,7 @@ async function seed() {
       trustScore: 78,
     },
     {
-      name: 'Starter Plan Studio',
+      name: 'Oak Street Studio',
       category: 'Photography',
       description: 'Dummy business on the Starter plan for checkout and limits testing.',
       plan: 'starter',
@@ -98,7 +98,7 @@ async function seed() {
       trustScore: 88,
     },
     {
-      name: 'Plus Plan Retail',
+      name: 'Harbor & Co',
       category: 'Clothing & Fashion',
       description: 'Dummy business on the Plus plan for domains, widgets, and brand testing.',
       plan: 'plus',
@@ -114,7 +114,7 @@ async function seed() {
       trustScore: 92,
     },
     {
-      name: 'Premium Plan Clinic',
+      name: 'Riverside Dental',
       category: 'Dental Services',
       description: 'Dummy business on the Premium plan for advanced analytics and premium widgets.',
       plan: 'premium',
@@ -130,7 +130,7 @@ async function seed() {
       trustScore: 95,
     },
     {
-      name: 'Enterprise Plan Group',
+      name: 'Atlas Group',
       category: 'Business Services',
       description: 'Dummy business on the Enterprise plan for full feature and unlimited-plan testing.',
       plan: 'enterprise',
@@ -173,24 +173,31 @@ async function seed() {
     }
 
     let businessId = null
-    const existingBusiness = await query('SELECT id FROM businesses WHERE slug = $1', [slug])
+    const existingBusiness = await query(
+      `SELECT id FROM businesses
+       WHERE email = $1 OR slug = $2 OR user_id = $3
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [biz.email, slug, userId],
+    )
     if (existingBusiness.rows.length > 0) {
       businessId = existingBusiness.rows[0].id
       await query(
         `UPDATE businesses
          SET user_id = $1,
              name = $2,
-             category = $3,
-             description = $4,
-             website = $5,
-             email = $6,
+             slug = $3,
+             category = $4,
+             description = $5,
+             website = $6,
+             email = $7,
              status = 'published',
-             average_rating = $7,
-             review_count = $8,
-             trust_score = $9,
+             average_rating = $8,
+             review_count = $9,
+             trust_score = $10,
              updated_at = NOW()
-         WHERE id = $10`,
-        [userId, biz.name, biz.category, biz.description, biz.website, biz.email, biz.rating, biz.reviews, biz.trustScore, businessId],
+         WHERE id = $11`,
+        [userId, biz.name, slug, biz.category, biz.description, biz.website, biz.email, biz.rating, biz.reviews, biz.trustScore, businessId],
       )
     } else {
       const bizResult = await query(

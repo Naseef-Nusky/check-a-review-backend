@@ -20,7 +20,7 @@ const MUTED = '#64748B'
 const BORDER = '#E2E8F0'
 const PAGE_BG = '#EEF2F7'
 const CARD_BG = '#FFFFFF'
-const LOGO_BG = '#0B1F3A'
+const LOGO_BG = '#0F172A'
 const TITLE_BG = '#F8FAFC'
 const FOOTER_BG = '#F1F5F9'
 const LOGO_CID = 'brandlogo'
@@ -169,9 +169,8 @@ async function renderEmailTemplate({
       <img
         src="${escapeHtml(logoSrc)}"
         alt="${escapeHtml(appName)}"
-        width="180"
-        height="auto"
-        style="display:block;margin:0 auto;width:180px;max-width:70%;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;background:#ffffff;border-radius:8px;padding:8px;"
+        width="200"
+        style="display:block;margin:0 auto;width:200px;max-width:86%;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;background:${LOGO_BG};"
       />
     `
     : `
@@ -236,10 +235,10 @@ async function renderEmailTemplate({
                     </tr>
                   </table>
 
-                  <!-- Logo on dark blue -->
+                  <!-- Logo on dark background: wordmark is white / transparent PNG -->
                   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${LOGO_BG}" style="background:${LOGO_BG};border-collapse:collapse;">
                     <tr>
-                      <td align="left" style="padding:22px 28px 18px 28px;">
+                      <td align="center" bgcolor="${LOGO_BG}" style="background:${LOGO_BG};padding:26px 28px;">
                         ${logoBlock}
                       </td>
                     </tr>
@@ -328,51 +327,8 @@ async function sendViaSendGrid({ to, subject, html, inlineLogo }) {
   await sgMail.send(message)
 }
 
-async function sendViaResend({ to, subject, html, inlineLogo }) {
-  if (!env.RESEND_API_KEY) {
-    console.log(`[Email - Dev Mode] To: ${to} | Subject: ${subject}`)
-    return
-  }
-
-  const body = {
-    from: env.SENDGRID_FROM_EMAIL,
-    to,
-    subject,
-    html,
-  }
-
-  if (inlineLogo) {
-    body.attachments = [
-      {
-        content: inlineLogo.content,
-        filename: inlineLogo.filename || 'site-logo.png',
-        content_id: inlineLogo.contentId,
-        contentId: inlineLogo.contentId,
-        content_type: inlineLogo.type || 'image/png',
-        type: inlineLogo.type || 'image/png',
-        disposition: 'inline',
-      },
-    ]
-  }
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw new Error(`Resend API error: ${response.statusText}`)
-  }
-}
-
 async function sendEmail(payload) {
   try {
-    if (env.EMAIL_PROVIDER === 'resend') {
-      return await sendViaResend(payload)
-    }
     return await sendViaSendGrid(payload)
   } catch (err) {
     console.warn(`[Email] Failed to send "${payload.subject}" to ${payload.to}:`, err.message || err)
@@ -387,6 +343,13 @@ async function appName() {
 async function sendTemplatedEmail({ to, subject, template }) {
   const { html, inlineLogo } = await renderEmailTemplate(template)
   await sendEmail({ to, subject, html, inlineLogo })
+}
+
+function displayBusinessName(name) {
+  const cleaned = String(name || '')
+    .replace(/^(free|starter|plus|premium|enterprise)\s+plan\s+/i, '')
+    .trim()
+  return cleaned || String(name || 'this business')
 }
 
 export const emailService = {
@@ -520,13 +483,14 @@ export const emailService = {
 
   async sendReviewInvitation(to, businessName, inviteUrl) {
     const APP_NAME = await appName()
+    const name = displayBusinessName(businessName)
     await sendTemplatedEmail({
       to,
-      subject: `${businessName} invites you to leave a review`,
+      subject: `${name} invites you to leave a review`,
       template: {
         eyebrow: 'Review invitation',
-        title: `Share your experience with ${escapeHtml(businessName)}`,
-        intro: `${escapeHtml(businessName)} invited you to leave a review on ${APP_NAME}.`,
+        title: `Share your experience with ${escapeHtml(name)}`,
+        intro: `${escapeHtml(name)} invited you to leave a review on ${APP_NAME}.`,
         body: 'If you already have an account, you can log in and write your review right away. If not, you can sign up first and then continue.',
         primaryCta: { label: 'Write a review', href: inviteUrl },
         footerNote: 'You are receiving this because a business invited you to leave a review on Check A Review.',
