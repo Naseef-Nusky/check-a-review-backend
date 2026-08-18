@@ -1,5 +1,6 @@
 import { query } from '../db/pool.js'
 import { CATALOG_VERSION, buildPricingContentFromCatalog, formatLimit, getPlan } from '../config/planCatalog.js'
+import { billingPlansService } from './billingPlans.service.js'
 
 const defaultPricingContent = buildPricingContentFromCatalog()
 
@@ -74,6 +75,48 @@ function normalizePricingContent(content = {}) {
   }
 }
 
+function buildBillingNoteFromPlans(existingNote, billingPlans = []) {
+  const paidPlans = billingPlans.filter((plan) => plan.checkout !== 'sales' && Number(plan.monthlyAmountCents) > 0)
+  const primaryCurrency = paidPlans[0]?.currency || 'GBP'
+  const perDomainPlans = billingPlans.filter((plan) => plan.perDomain).map((plan) => plan.name)
+  const perDomainText =
+    perDomainPlans.length > 0 ? ` ${perDomainPlans.join(' and ')} are billed per domain.` : ''
+
+  if (!String(existingNote || '').trim()) {
+    return `Paid plans are priced per month and billed annually in ${primaryCurrency}.${perDomainText}`
+  }
+
+  return String(existingNote)
+    .replace(/in\s+[A-Z]{3}\b/i, `in ${primaryCurrency}`)
+    .replace(/Starter, Plus, and Premium synced to Square in [A-Z]{3}\.?/i, `Paid plans are billed in ${primaryCurrency}.`)
+}
+
+async function hydratePlansFromBilling(content = {}) {
+  const normalized = normalizePricingContent(content)
+  const billingPlans = await billingPlansService.list().catch(() => [])
+  if (!billingPlans.length) return normalized
+
+  const billingByKey = new Map(billingPlans.map((plan) => [plan.key, plan]))
+  const plans = normalized.plans.map((plan) => {
+    const billing = billingByKey.get(plan.key)
+    if (!billing) return plan
+    return {
+      ...plan,
+      name: billing.name || plan.name,
+      price: billing.checkout === 'sales' ? 'Contact sales' : billing.priceLabel,
+      period: billing.checkout === 'sales' ? '' : billing.periodLabel,
+      users: billing.limitsLabel?.users || plan.users,
+      domains: billing.limitsLabel?.domains || plan.domains,
+    }
+  })
+
+  return {
+    ...normalized,
+    billingNote: buildBillingNoteFromPlans(normalized.billingNote, billingPlans),
+    plans,
+  }
+}
+
 async function seedDefaultPricingContent() {
   const payload = toDbPayload(defaultPricingContent)
   const result = await query(
@@ -136,12 +179,12 @@ export const pricingContentService = {
     await ensurePricingContentTable()
     const result = await query('SELECT * FROM business_pricing_content ORDER BY updated_at DESC LIMIT 1')
     if (result.rows.length === 0) {
-      return seedDefaultPricingContent()
+      return hydratePlansFromBilling(await seedDefaultPricingContent())
     }
     if (Number(result.rows[0].catalog_version || 0) < CATALOG_VERSION) {
-      return overwriteWithCatalog(result.rows[0].id)
+      return hydratePlansFromBilling(await overwriteWithCatalog(result.rows[0].id))
     }
-    return normalizePricingContent(mapRow(result.rows[0]))
+    return hydratePlansFromBilling(mapRow(result.rows[0]))
   },
 
   async updateBusinessPricingContent(data) {
@@ -153,7 +196,8 @@ export const pricingContentService = {
       return this.updateBusinessPricingContent(data)
     }
 
-    const payload = toDbPayload(normalizePricingContent(data))
+    const merged = await hydratePlansFromBilling(data)
+    const payload = toDbPayload(merged)
     const result = await query(
       `UPDATE business_pricing_content
        SET hero_title = $1,
@@ -184,7 +228,7 @@ export const pricingContentService = {
       ],
     )
 
-    return normalizePricingContent(mapRow(result.rows[0]))
+    return hydratePlansFromBilling(mapRow(result.rows[0]))
   },
 }
 

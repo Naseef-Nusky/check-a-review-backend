@@ -73,32 +73,159 @@ async function seed() {
   }
 
   const sampleBusinesses = [
-    { name: 'Tech Solutions Inc', category: 'Internet & Software', description: 'Leading technology solutions provider.' },
-    { name: 'Green Cafe', category: 'Coffee & Tea', description: 'Organic coffee and healthy meals.' },
-    { name: 'FitLife Gym', category: 'Wellness & Spa', description: 'Premium fitness center with personal training.' },
+    {
+      name: 'Free Plan Bakery',
+      category: 'Bakeries',
+      description: 'Dummy business on the Free plan for CRM and portal testing.',
+      plan: 'free',
+      email: 'free-plan@example.com',
+      website: 'https://free-plan-bakery.example.com',
+      domains: ['free-plan-bakery.example.com'],
+      rating: 4.2,
+      reviews: 6,
+      trustScore: 78,
+    },
+    {
+      name: 'Starter Plan Studio',
+      category: 'Photography',
+      description: 'Dummy business on the Starter plan for checkout and limits testing.',
+      plan: 'starter',
+      email: 'starter-plan@example.com',
+      website: 'https://starter-plan-studio.example.com',
+      domains: ['starter-plan-studio.example.com'],
+      rating: 4.5,
+      reviews: 18,
+      trustScore: 88,
+    },
+    {
+      name: 'Plus Plan Retail',
+      category: 'Clothing & Fashion',
+      description: 'Dummy business on the Plus plan for domains, widgets, and brand testing.',
+      plan: 'plus',
+      email: 'plus-plan@example.com',
+      website: 'https://plus-plan-retail.example.com',
+      domains: [
+        'plus-plan-retail.example.com',
+        'shop.plus-plan-retail.example.com',
+        'offers.plus-plan-retail.example.com',
+      ],
+      rating: 4.7,
+      reviews: 43,
+      trustScore: 92,
+    },
+    {
+      name: 'Premium Plan Clinic',
+      category: 'Dental Services',
+      description: 'Dummy business on the Premium plan for advanced analytics and premium widgets.',
+      plan: 'premium',
+      email: 'premium-plan@example.com',
+      website: 'https://premium-plan-clinic.example.com',
+      domains: [
+        'premium-plan-clinic.example.com',
+        'locations.premium-plan-clinic.example.com',
+        'book.premium-plan-clinic.example.com',
+      ],
+      rating: 4.8,
+      reviews: 96,
+      trustScore: 95,
+    },
+    {
+      name: 'Enterprise Plan Group',
+      category: 'Business Services',
+      description: 'Dummy business on the Enterprise plan for full feature and unlimited-plan testing.',
+      plan: 'enterprise',
+      email: 'enterprise-plan@example.com',
+      website: 'https://enterprise-plan-group.example.com',
+      domains: [
+        'enterprise-plan-group.example.com',
+        'uk.enterprise-plan-group.example.com',
+        'eu.enterprise-plan-group.example.com',
+        'global.enterprise-plan-group.example.com',
+      ],
+      rating: 4.9,
+      reviews: 180,
+      trustScore: 98,
+    },
   ]
 
   for (const biz of sampleBusinesses) {
-    const exists = await query('SELECT id FROM businesses WHERE slug = $1', [slugify(biz.name)])
-    if (exists.rows.length > 0) continue
-
-    const email = `${slugify(biz.name)}@example.com`
+    const slug = slugify(biz.name)
     const passwordHash = await bcrypt.hash('Business@123', 12)
 
-    const userResult = await query(
-      `INSERT INTO users (email, password_hash, name, role, email_verified)
-       VALUES ($1, $2, $3, 'business', TRUE) RETURNING id`,
-      [email, passwordHash, biz.name],
+    let userId = null
+    const existingUser = await query('SELECT id FROM users WHERE email = $1 AND role = $2', [biz.email, 'business'])
+    if (existingUser.rows.length > 0) {
+      userId = existingUser.rows[0].id
+      await query(
+        `UPDATE users
+         SET name = $1, password_hash = $2, email_verified = TRUE, updated_at = NOW()
+         WHERE id = $3`,
+        [biz.name, passwordHash, userId],
+      )
+    } else {
+      const userResult = await query(
+        `INSERT INTO users (email, password_hash, name, role, email_verified)
+         VALUES ($1, $2, $3, 'business', TRUE)
+         RETURNING id`,
+        [biz.email, passwordHash, biz.name],
+      )
+      userId = userResult.rows[0].id
+    }
+
+    let businessId = null
+    const existingBusiness = await query('SELECT id FROM businesses WHERE slug = $1', [slug])
+    if (existingBusiness.rows.length > 0) {
+      businessId = existingBusiness.rows[0].id
+      await query(
+        `UPDATE businesses
+         SET user_id = $1,
+             name = $2,
+             category = $3,
+             description = $4,
+             website = $5,
+             email = $6,
+             status = 'published',
+             average_rating = $7,
+             review_count = $8,
+             trust_score = $9,
+             updated_at = NOW()
+         WHERE id = $10`,
+        [userId, biz.name, biz.category, biz.description, biz.website, biz.email, biz.rating, biz.reviews, biz.trustScore, businessId],
+      )
+    } else {
+      const bizResult = await query(
+        `INSERT INTO businesses (
+           user_id, name, slug, category, description, website, email, status, average_rating, review_count, trust_score
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', $8, $9, $10)
+         RETURNING id`,
+        [userId, biz.name, slug, biz.category, biz.description, biz.website, biz.email, biz.rating, biz.reviews, biz.trustScore],
+      )
+      businessId = bizResult.rows[0].id
+    }
+
+    await query(
+      `INSERT INTO subscriptions (business_id, plan, status)
+       VALUES ($1, $2, 'active')
+       ON CONFLICT (business_id) DO UPDATE
+         SET plan = EXCLUDED.plan,
+             status = 'active',
+             updated_at = NOW()`,
+      [businessId, biz.plan],
     )
 
-    const bizResult = await query(
-      `INSERT INTO businesses (user_id, name, slug, category, description, email, average_rating, review_count, trust_score)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-      [userResult.rows[0].id, biz.name, slugify(biz.name), biz.category, biz.description, email, 4.5, 10, 90],
-    )
+    for (const [index, domain] of biz.domains.entries()) {
+      await query(
+        `INSERT INTO business_domains (business_id, domain, is_primary, status)
+         VALUES ($1, $2, $3, 'active')
+         ON CONFLICT (business_id, domain) DO UPDATE
+           SET is_primary = EXCLUDED.is_primary,
+               status = 'active',
+               updated_at = NOW()`,
+        [businessId, domain, index === 0],
+      )
+    }
 
-    await query(`INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'starter')`, [bizResult.rows[0].id])
-    console.log(`Business seeded: ${biz.name}`)
+    console.log(`Plan business seeded: ${biz.name} (${biz.plan})`)
   }
 
   const customerExists = await query('SELECT id FROM users WHERE email = $1', ['customer@example.com'])
