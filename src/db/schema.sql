@@ -114,9 +114,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   business_id UUID NOT NULL UNIQUE REFERENCES businesses(id) ON DELETE CASCADE,
   plan VARCHAR(20) NOT NULL DEFAULT 'free'
-    CHECK (plan IN ('free', 'starter', 'premium')),
-  stripe_customer_id VARCHAR(255),
-  stripe_subscription_id VARCHAR(255),
+    CHECK (plan IN ('free', 'starter', 'plus', 'premium', 'enterprise')),
   square_customer_id VARCHAR(255),
   square_subscription_id VARCHAR(255),
   pending_plan VARCHAR(20),
@@ -131,7 +129,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-  stripe_payment_intent_id VARCHAR(255) UNIQUE,
   square_payment_id VARCHAR(255) UNIQUE,
   amount INTEGER NOT NULL,
   currency VARCHAR(10) DEFAULT 'usd',

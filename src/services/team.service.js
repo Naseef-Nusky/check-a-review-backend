@@ -1,7 +1,8 @@
 import { query } from '../db/pool.js'
 import { AppError } from '../utils/helpers.js'
 import bcrypt from 'bcryptjs'
-import { pricingContentService } from './pricing-content.service.js'
+import { getPlan } from '../config/planCatalog.js'
+import { billingPlansService } from './billingPlans.service.js'
 import {
   assertBusinessAccess,
   assertBusinessOwner,
@@ -26,23 +27,14 @@ function formatSeatLimit(limit) {
 }
 
 async function getUsersLimitForPlan(planKey) {
-  const pricing = await pricingContentService.getBusinessPricingContent()
-  const plans = Array.isArray(pricing?.plans) ? pricing.plans : []
   const key = String(planKey || 'free').toLowerCase()
-
-  if (key === 'free') return 1
-
-  const plan = plans.find((item) => String(item.key || '').toLowerCase() === key)
-  if (plan?.users) return parseSeatLimit(plan.users)
-
-  const comparison = (pricing?.comparisonSections || [])
-    .flatMap((section) => section.rows || [])
-    .find((row) => String(row.label || '').trim().toLowerCase() === 'users')
-  if (comparison?.values?.[key] != null) return parseSeatLimit(comparison.values[key])
-
-  if (key === 'premium') return Number.POSITIVE_INFINITY
-  if (key === 'plus') return 3
-  return 1
+  if (key === 'free') return getPlan('free').users
+  try {
+    const row = await billingPlansService.getByKey(key)
+    return row.users
+  } catch {
+    return getPlan(key).users
+  }
 }
 
 export const teamService = {

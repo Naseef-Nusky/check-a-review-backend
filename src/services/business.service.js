@@ -31,7 +31,8 @@ export async function ensureBusinessStatusColumn() {
         ALTER TABLE businesses ALTER COLUMN status SET DEFAULT 'pending';
       END IF;
     END $$;
-  `)
+    `)
+  await query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS brand_color VARCHAR(20)`)
   statusColumnReady = true
 }
 
@@ -163,6 +164,17 @@ export const businessService = {
       ],
     )
     const row = result.rows[0]
+    if (data.brandColor !== undefined && row) {
+      const { getEntitlements } = await import('./planEntitlements.service.js')
+      const entitlements = await getEntitlements(businessId)
+      if (!entitlements.flags.brandMatch) {
+        throw new AppError('Brand matching is included from Plus. Upgrade to match your public profile to your brand.', 403, 'BRAND_PLAN')
+      }
+      await query(`UPDATE businesses SET brand_color = $1, updated_at = NOW() WHERE id = $2`, [
+        String(data.brandColor || '').trim() || null,
+        businessId,
+      ])
+    }
     if (data.website !== undefined && row) {
       const { domainService } = await import('./domain.service.js')
       await domainService.syncFromWebsiteField(businessId, data.website, userId)
@@ -228,10 +240,24 @@ export const businessService = {
       [businessId],
     )
 
+    const invitationStats = await query(
+      `SELECT
+         COUNT(*) FILTER (WHERE sent_at >= date_trunc('month', NOW()))::int AS invited_this_month,
+         COUNT(*) FILTER (WHERE status = 'reviewed' AND COALESCE(reviewed_at, sent_at) >= date_trunc('month', NOW()))::int AS reviewed_this_month
+       FROM review_invitations
+       WHERE business_id = $1`,
+      [businessId],
+    )
+
+    const { getEntitlements } = await import('./planEntitlements.service.js')
+    const entitlements = await getEntitlements(businessId)
+
     return {
       business,
       ratingBreakdown: breakdown.rows,
       monthlyTrend: monthly.rows,
+      invitationStats: invitationStats.rows[0] || { invited_this_month: 0, reviewed_this_month: 0 },
+      entitlements,
     }
   },
 

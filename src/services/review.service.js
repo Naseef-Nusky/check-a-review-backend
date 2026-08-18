@@ -7,6 +7,7 @@ import { emailService } from './email.service.js'
 import { businessService } from './business.service.js'
 import { notificationService } from './notification.service.js'
 import { assertBusinessAccess } from './businessAccess.service.js'
+import { assertInvitationQuota } from './planEntitlements.service.js'
 
 async function getBusinessOwner(businessId) {
   const owner = await query(
@@ -359,6 +360,7 @@ export const reviewService = {
     await assertBusinessAccess(businessId, userId)
     const business = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
     if (business.rows.length === 0) throw new AppError('Business not found', 404)
+    await assertInvitationQuota(businessId)
 
     const token = uuidv4()
     const result = await query(

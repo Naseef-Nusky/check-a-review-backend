@@ -31,7 +31,7 @@ router.post(
   authorize('business'),
   [
     body('businessId').notEmpty(),
-    body('plan').isIn(['starter', 'premium']).withMessage('Plan must be starter or premium'),
+    body('plan').isIn(['starter', 'plus', 'premium']).withMessage('Plan must be starter, plus, or premium'),
   ],
   validate,
   async (req, res, next) => {

@@ -4,6 +4,8 @@ import { AppError } from '../utils/helpers.js'
 import { businessService } from '../services/business.service.js'
 import { reviewService } from '../services/review.service.js'
 import { domainService } from '../services/domain.service.js'
+import { assertWidgetAccess, getBusinessPlanKey, getEntitlements } from '../services/planEntitlements.service.js'
+import { WIDGET_CATALOG, allowedWidgetsForPlan } from '../config/planCatalog.js'
 
 const router = Router()
 
@@ -126,8 +128,23 @@ async function loadWidgetData(req, identifier) {
   }
 }
 
+function widgetLayout(requestedStyle = 'classic') {
+  const item = WIDGET_CATALOG.find((widget) => widget.id === requestedStyle)
+  if (item?.layout) return { id: item.id, layout: item.layout }
+  if (['classic', 'compact', 'dark'].includes(requestedStyle)) {
+    return { id: requestedStyle, layout: requestedStyle }
+  }
+  return { id: 'classic', layout: 'classic' }
+}
+
+async function resolveWidgetStyle(businessId, requested) {
+  const allowed = allowedWidgetsForPlan(await getBusinessPlanKey(businessId))
+  if (requested && allowed.some((widget) => widget.id === requested)) return requested
+  return allowed[0]?.id || 'classic'
+}
+
 function renderWidgetHtml(data, requestedStyle = 'classic') {
-  const style = ['classic', 'compact', 'dark'].includes(requestedStyle) ? requestedStyle : 'classic'
+  const style = widgetLayout(requestedStyle).layout
   const dark = style === 'dark'
   const palette = {
     surface: dark ? '#0F172A' : '#FFFFFF',
@@ -234,16 +251,24 @@ router.get('/:businessId/status', async (req, res, next) => {
       includeUnpublished: true,
     })
     const domains = await domainService.listActiveDomainHosts(business.id)
+    const entitlements = await getEntitlements(business.id)
+    const planKey = await getBusinessPlanKey(business.id)
     res.json({
       success: true,
       data: {
         businessId: business.id,
         hasDomains: domains.length > 0,
         domains,
+        plan: planKey,
+        widgetsAllowed: entitlements.limits.widgets,
+        widgets: entitlements.widgets,
+        widgetCatalog: WIDGET_CATALOG,
         message:
           domains.length === 0
             ? 'Add at least one domain before embedding the review widget.'
-            : 'Widget can be embedded on your registered domains.',
+            : entitlements.limits.widgets
+              ? 'Widget can be embedded on your registered domains.'
+              : 'Upgrade to Starter or higher to embed widgets.',
       },
     })
   } catch (err) {
@@ -263,14 +288,16 @@ router.get('/:businessId/data', async (req, res, next) => {
 router.get('/:businessId', async (req, res, next) => {
   try {
     const widgetData = await loadWidgetData(req, req.params.businessId)
+    const style = await resolveWidgetStyle(widgetData.businessId, String(req.query.style || ''))
+    await assertWidgetAccess(widgetData.businessId, style)
 
     if (req.query.format === 'json' || req.accepts(['html', 'json']) === 'json') {
       return res.json({ success: true, data: widgetData })
     }
 
-    res.type('html').send(renderWidgetHtml(widgetData, String(req.query.style || 'classic')))
+    res.type('html').send(renderWidgetHtml(widgetData, style))
   } catch (err) {
-    if (err instanceof AppError && (err.code === 'DOMAIN_REQUIRED' || err.code === 'DOMAIN_NOT_ALLOWED')) {
+    if (err instanceof AppError && (err.code === 'DOMAIN_REQUIRED' || err.code === 'DOMAIN_NOT_ALLOWED' || err.code === 'WIDGET_PLAN' || err.code === 'WIDGET_LIMIT')) {
       const wantsJson = req.query.format === 'json' || req.accepts(['html', 'json']) === 'json'
       if (wantsJson) return next(err)
 
@@ -286,7 +313,7 @@ router.get('/:businessId', async (req, res, next) => {
 
       return res.status(err.statusCode || 403).type('html').send(
         renderBlockedHtml({
-          title: err.code === 'DOMAIN_REQUIRED' ? 'Domain required' : 'Domain not allowed',
+          title: err.code === 'DOMAIN_REQUIRED' ? 'Domain required' : err.code?.startsWith('WIDGET') ? 'Widget not included' : 'Domain not allowed',
           message: err.message,
           domains,
         }),

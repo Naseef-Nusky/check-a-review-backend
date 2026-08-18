@@ -51,7 +51,9 @@ app.use(cors({
       return callback(null, true)
     }
 
-    return callback(new Error(`CORS blocked for origin: ${origin}`))
+    // Deny quietly. Do not throw — Cursor/VS Code (`vscode-file://`) probes
+    // the API root and would otherwise log an unhandled CORS error.
+    return callback(null, false)
   },
   credentials: true,
 }))

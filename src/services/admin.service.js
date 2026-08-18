@@ -257,8 +257,6 @@ export const adminService = {
               s.status as subscription_status,
               s.square_customer_id,
               s.square_subscription_id,
-              s.stripe_customer_id,
-              s.stripe_subscription_id,
               s.current_period_end,
               s.created_at as subscription_created_at,
               u.email as owner_email,

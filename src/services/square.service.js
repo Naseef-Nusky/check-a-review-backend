@@ -27,6 +27,41 @@ function moneyAmount(cents) {
   return BigInt(Math.round(Number(cents) || 0))
 }
 
+function squareCadence(cadence) {
+  const value = String(cadence || 'YEARLY').toUpperCase()
+  if (value === 'YEARLY') return 'ANNUAL'
+  return value
+}
+
+function buildPhases({ cadence, amountCents, trialDays = 0 }) {
+  const paid = {
+    cadence: squareCadence(cadence),
+    pricing: {
+      type: 'STATIC',
+      priceMoney: {
+        amount: moneyAmount(amountCents),
+        currency: 'USD',
+      },
+    },
+  }
+  const days = Number(trialDays || 0)
+  if (days >= 1) {
+    return [
+      {
+        cadence: 'DAILY',
+        ordinal: BigInt(0),
+        periods: BigInt(days),
+        pricing: {
+          type: 'STATIC',
+          priceMoney: { amount: moneyAmount(0), currency: 'USD' },
+        },
+      },
+      { ...paid, ordinal: BigInt(1) },
+    ]
+  }
+  return [{ ...paid, ordinal: BigInt(0) }]
+}
+
 export const squareService = {
   hasCredentials() {
     const token = String(env.SQUARE_ACCESS_TOKEN || '')
@@ -63,7 +98,8 @@ export const squareService = {
     name,
     amountCents,
     currency = 'USD',
-    cadence = 'MONTHLY',
+    cadence = 'YEARLY',
+    trialDays = 0,
     existingPlanId = null,
     existingVariationId = null,
   }) {
@@ -120,21 +156,9 @@ export const squareService = {
         type: 'SUBSCRIPTION_PLAN_VARIATION',
         id: variationTempId,
         subscriptionPlanVariationData: {
-          name: `${name || key} ${cadence.toLowerCase()}`,
+          name: `${name || key} ${String(cadence || 'yearly').toLowerCase()}`,
           subscriptionPlanId: planId,
-          phases: [
-            {
-              cadence,
-              ordinal: BigInt(0),
-              pricing: {
-                type: 'STATIC',
-                priceMoney: {
-                  amount: moneyAmount(amountCents),
-                  currency: currency || 'USD',
-                },
-              },
-            },
-          ],
+          phases: buildPhases({ cadence, amountCents, trialDays }),
         },
       },
     })
@@ -191,12 +215,12 @@ export const squareService = {
         name: config.name,
         priceMoney: {
           amount: moneyAmount(config.amountCents),
-          currency: config.currency || env.SQUARE_CURRENCY || 'USD',
+          currency: 'USD',
         },
         locationId: env.SQUARE_LOCATION_ID,
       },
       checkoutOptions: {
-        subscriptionPlanId: config.planId,
+        subscriptionPlanId: config.variationId || config.planId,
         redirectUrl: successUrl,
       },
       prePopulatedData: {
