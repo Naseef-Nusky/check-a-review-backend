@@ -17,6 +17,19 @@ async function start() {
     console.log(`API: http://localhost:${env.PORT}/api`)
     console.log(`Environment: ${env.NODE_ENV}`)
   })
+
+  const SIX_HOURS = 6 * 60 * 60 * 1000
+  const runRenewalReminders = async () => {
+    try {
+      const { subscriptionService } = await import('./services/subscription.service.js')
+      const sent = await subscriptionService.processRenewalReminders()
+      if (sent) console.log(`Sent ${sent} yearly renewal reminder email(s)`)
+    } catch (err) {
+      console.error('Renewal reminder job failed:', err.message)
+    }
+  }
+  setTimeout(runRenewalReminders, 15_000)
+  setInterval(runRenewalReminders, SIX_HOURS)
 }
 
 start()

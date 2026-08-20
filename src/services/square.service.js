@@ -240,6 +240,17 @@ export const squareService = {
     }
   },
 
+  async getSubscription(subscriptionId) {
+    assertCredentials()
+    if (!subscriptionId) return null
+    try {
+      const response = await client.subscriptions.get({ subscriptionId })
+      return response.subscription || null
+    } catch {
+      return null
+    }
+  },
+
   async cancelSubscription(subscriptionId) {
     assertCredentials()
     if (!subscriptionId) throw new AppError('No active Square subscription', 400)

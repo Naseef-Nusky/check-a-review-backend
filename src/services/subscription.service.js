@@ -15,7 +15,10 @@ async function ensureSquareColumns() {
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_customer_id VARCHAR(255)`)
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_subscription_id VARCHAR(255)`)
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_plan VARCHAR(20)`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renewal_reminder_period_end TIMESTAMPTZ`)
   await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id VARCHAR(255)`)
+  await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'GBP'`)
   await query(`ALTER TABLE subscriptions DROP COLUMN IF EXISTS stripe_customer_id`)
   await query(`ALTER TABLE subscriptions DROP COLUMN IF EXISTS stripe_subscription_id`)
   await query(`ALTER TABLE payments DROP COLUMN IF EXISTS stripe_payment_intent_id`)
@@ -38,11 +41,86 @@ function eventObject(event) {
   return data.subscription || data.payment || data.invoice || data || {}
 }
 
+function parseSquareDate(value) {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function extractPeriodEnd(obj = {}) {
+  return parseSquareDate(
+    obj.charged_through_date ||
+      obj.chargedThroughDate ||
+      obj.current_period_end ||
+      obj.currentPeriodEnd,
+  )
+}
+
+function addYears(from, years = 1) {
+  const date = new Date(from)
+  date.setFullYear(date.getFullYear() + years)
+  return date
+}
+
+function addDays(from, days) {
+  const date = new Date(from)
+  date.setDate(date.getDate() + Number(days || 0))
+  return date
+}
+
+async function findSubscriptionRow({ customerId, subscriptionId, businessId } = {}) {
+  if (businessId) {
+    const byBusiness = await query('SELECT * FROM subscriptions WHERE business_id = $1 LIMIT 1', [businessId])
+    if (byBusiness.rows[0]) return byBusiness.rows[0]
+  }
+  if (subscriptionId) {
+    const bySub = await query('SELECT * FROM subscriptions WHERE square_subscription_id = $1 LIMIT 1', [subscriptionId])
+    if (bySub.rows[0]) return bySub.rows[0]
+  }
+  if (customerId) {
+    const byCustomer = await query('SELECT * FROM subscriptions WHERE square_customer_id = $1 LIMIT 1', [customerId])
+    if (byCustomer.rows[0]) return byCustomer.rows[0]
+  }
+  return null
+}
+
+async function ownerEmailForBusiness(businessId) {
+  const result = await query(
+    'SELECT u.email FROM businesses b JOIN users u ON u.id = b.user_id WHERE b.id = $1',
+    [businessId],
+  )
+  return result.rows[0]?.email || null
+}
+
+async function setPeriodEnd(businessId, periodEnd) {
+  if (!businessId || !periodEnd) return
+  await query(
+    `UPDATE subscriptions
+     SET current_period_end = $1, updated_at = NOW()
+     WHERE business_id = $2`,
+    [periodEnd, businessId],
+  )
+}
+
 export const subscriptionService = {
   async getByBusiness(businessId) {
     await ensureSquareColumns()
     const result = await query('SELECT * FROM subscriptions WHERE business_id = $1', [businessId])
     const row = result.rows[0] || { plan: 'free', status: 'active' }
+
+    if (row.square_subscription_id && squareService.hasCredentials()) {
+      try {
+        const remote = await squareService.getSubscription(row.square_subscription_id)
+        const periodEnd = extractPeriodEnd(remote || {})
+        if (periodEnd) {
+          await setPeriodEnd(businessId, periodEnd)
+          row.current_period_end = periodEnd
+        }
+      } catch (err) {
+        console.error('Could not refresh Square subscription:', err.message)
+      }
+    }
+
     const entitlements = await getEntitlements(businessId)
     const billingPlans = await billingPlansService.list().catch(() => [])
     return {
@@ -50,6 +128,7 @@ export const subscriptionService = {
       entitlements,
       catalog: billingPlans,
       salesEmail: env.SALES_EMAIL,
+      autoRenew: Boolean(row.square_subscription_id && ['active', 'trialing', 'past_due'].includes(row.status)),
     }
   },
 
@@ -116,9 +195,15 @@ export const subscriptionService = {
       successUrl: `${env.BUSINESS_PORTAL_URL}/subscription?checkout=success`,
     })
 
+    const trialDays = Number(planRow.trialDays || planRow.trial_days || 0)
+    const expectedEnd = addYears(addDays(new Date(), trialDays), 1)
     await query(
-      `UPDATE subscriptions SET pending_plan = $1, updated_at = NOW() WHERE business_id = $2`,
-      [plan, businessId],
+      `UPDATE subscriptions
+       SET pending_plan = $1,
+           current_period_end = COALESCE(current_period_end, $3),
+           updated_at = NOW()
+       WHERE business_id = $2`,
+      [plan, businessId, expectedEnd],
     )
 
     return { sessionId: link.id, url: link.url, plan }
@@ -143,6 +228,7 @@ export const subscriptionService = {
        SET plan = 'free',
            status = 'cancelled',
            square_subscription_id = NULL,
+           pending_plan = NULL,
            updated_at = NOW()
        WHERE business_id = $1
        RETURNING *`,
@@ -153,100 +239,282 @@ export const subscriptionService = {
 
   async handleWebhook(event) {
     await ensureSquareColumns()
-    const type = event?.type
+    const type = String(event?.type || '')
     const obj = eventObject(event)
 
     if (type === 'subscription.created' || type === 'subscription.updated') {
-      const subscriptionId = obj.id
-      const customerId = obj.customer_id || obj.customerId
-      const status = String(obj.status || '').toUpperCase()
-      const note = safeJsonParse(obj.note) || safeJsonParse(obj.source?.name)
-      const plan = note?.plan && PAID_SQUARE_PLANS.includes(note.plan) ? note.plan : null
+      await this.applySquareSubscription(obj, { created: type === 'subscription.created' })
+      return
+    }
 
-      if (!customerId) return
+    if (type === 'invoice.payment_made') {
+      await this.handleInvoicePaid(obj)
+      return
+    }
 
-      if (status === 'CANCELED' || status === 'DEACTIVATED') {
-        await query(
-          `UPDATE subscriptions
-           SET plan = 'free', status = 'cancelled', square_subscription_id = NULL, updated_at = NOW()
-           WHERE square_customer_id = $1 OR square_subscription_id = $2`,
-          [customerId, subscriptionId],
-        )
-        return
-      }
-
-      const nextPlan = plan || (await inferPendingPlan(customerId))
-      await query(
-        `UPDATE subscriptions
-         SET plan = COALESCE($1, plan),
-             pending_plan = NULL,
-             square_subscription_id = $2,
-             square_customer_id = COALESCE(square_customer_id, $3),
-             status = 'active',
-             updated_at = NOW()
-         WHERE square_customer_id = $3`,
-        [nextPlan, subscriptionId, customerId],
-      )
-
-      if (nextPlan && type === 'subscription.created') {
-        const biz = await query(
-          `SELECT u.email
-           FROM subscriptions s
-           JOIN businesses b ON b.id = s.business_id
-           JOIN users u ON u.id = b.user_id
-           WHERE s.square_customer_id = $1
-           LIMIT 1`,
-          [customerId],
-        )
-        if (biz.rows[0]) {
-          await emailService.sendSubscriptionConfirmation(biz.rows[0].email, nextPlan)
-        }
-      }
+    if (
+      type === 'invoice.scheduled_charge_failed' ||
+      type === 'invoice.payment_failed' ||
+      type === 'invoice.payment_overdue'
+    ) {
+      await this.handleInvoiceFailed(obj)
       return
     }
 
     if (type === 'payment.updated' || type === 'payment.created') {
-      const payment = obj
-      const paymentStatus = String(payment.status || '').toUpperCase()
-      if (paymentStatus !== 'COMPLETED') return
+      await this.handlePaymentEvent(obj)
+    }
+  },
 
-      const note = safeJsonParse(payment.note)
-      const customerId = payment.customer_id || payment.customerId || note?.customerId
-      const amount = Number(payment.amount_money?.amount || payment.amountMoney?.amount || 0)
-      const paymentId = payment.id
-      if (!customerId || !paymentId) return
+  async applySquareSubscription(obj, { created = false } = {}) {
+    const subscriptionId = obj.id
+    const customerId = obj.customer_id || obj.customerId
+    const status = String(obj.status || '').toUpperCase()
+    const note = safeJsonParse(obj.note) || safeJsonParse(obj.source?.name)
+    const plan = note?.plan && PAID_SQUARE_PLANS.includes(note.plan) ? note.plan : null
+    const periodEnd = extractPeriodEnd(obj)
 
-      const sub = await query(
-        'SELECT business_id, plan FROM subscriptions WHERE square_customer_id = $1 LIMIT 1',
-        [customerId],
-      )
-      if (!sub.rows[0]) return
+    if (!customerId && !subscriptionId) return
 
-      const plan = note?.plan || sub.rows[0].plan || 'subscription'
-      if (note?.plan && PAID_SQUARE_PLANS.includes(note.plan)) {
-        await query(
-          `UPDATE subscriptions
-           SET plan = $1, status = 'active', updated_at = NOW()
-           WHERE business_id = $2`,
-          [note.plan, sub.rows[0].business_id],
-        )
-      }
-
+    if (status === 'CANCELED' || status === 'DEACTIVATED') {
       await query(
-        `INSERT INTO payments (business_id, square_payment_id, amount, plan, status)
-         VALUES ($1, $2, $3, $4, 'succeeded')
-         ON CONFLICT (square_payment_id) DO NOTHING`,
-        [sub.rows[0].business_id, paymentId, amount, plan],
+        `UPDATE subscriptions
+         SET plan = 'free',
+             status = 'cancelled',
+             square_subscription_id = NULL,
+             pending_plan = NULL,
+             updated_at = NOW()
+         WHERE square_customer_id = $1 OR square_subscription_id = $2`,
+        [customerId || '', subscriptionId || ''],
       )
+      return
+    }
 
-      const biz = await query(
-        'SELECT u.email FROM businesses b JOIN users u ON u.id = b.user_id WHERE b.id = $1',
-        [sub.rows[0].business_id],
-      )
-      if (biz.rows[0] && amount > 0) {
-        await emailService.sendPaymentReceipt(biz.rows[0].email, amount, plan)
+    const nextPlan = plan || (await inferPendingPlan(customerId))
+    const localStatus = status === 'PAUSED' ? 'past_due' : status === 'PENDING' ? 'trialing' : 'active'
+
+    await query(
+      `UPDATE subscriptions
+       SET plan = COALESCE($1, plan),
+           pending_plan = NULL,
+           square_subscription_id = COALESCE($2, square_subscription_id),
+           square_customer_id = COALESCE(square_customer_id, $3),
+           status = $4,
+           current_period_end = COALESCE($5, current_period_end),
+           updated_at = NOW()
+       WHERE square_customer_id = $3 OR square_subscription_id = $2`,
+      [nextPlan, subscriptionId, customerId, localStatus, periodEnd],
+    )
+
+    if (created && nextPlan && localStatus !== 'past_due') {
+      const row = await findSubscriptionRow({ customerId, subscriptionId })
+      const email = row ? await ownerEmailForBusiness(row.business_id) : null
+      if (email) {
+        await emailService.sendSubscriptionConfirmation(email, nextPlan, {
+          nextBillingDate: periodEnd || row?.current_period_end,
+        })
       }
     }
+  },
+
+  async handleInvoicePaid(invoice) {
+    const subscriptionId = invoice.subscription_id || invoice.subscriptionId
+    const customerId = invoice.primary_recipient?.customer_id || invoice.customer_id || invoice.customerId
+    const amount = Number(
+      invoice.payment_requests?.[0]?.computed_amount_money?.amount ||
+        invoice.paymentRequests?.[0]?.computedAmountMoney?.amount ||
+        0,
+    )
+    const currency =
+      invoice.payment_requests?.[0]?.computed_amount_money?.currency ||
+      invoice.paymentRequests?.[0]?.computedAmountMoney?.currency ||
+      'GBP'
+    const invoiceId = invoice.id
+    if (!invoiceId) return
+
+    const row = await findSubscriptionRow({ customerId, subscriptionId })
+    if (!row) return
+
+    const nextEnd = extractPeriodEnd(invoice) || addYears(new Date(), 1)
+    await query(
+      `UPDATE subscriptions
+       SET status = 'active',
+           current_period_end = $1,
+           updated_at = NOW()
+       WHERE business_id = $2`,
+      [nextEnd, row.business_id],
+    )
+
+    await this.recordSuccessfulCharge({
+      businessId: row.business_id,
+      paymentId: `invoice-${invoiceId}`,
+      amount,
+      currency,
+      plan: row.plan,
+      nextBillingDate: nextEnd,
+    })
+  },
+
+  async handleInvoiceFailed(invoice) {
+    const subscriptionId = invoice.subscription_id || invoice.subscriptionId
+    const customerId = invoice.primary_recipient?.customer_id || invoice.customer_id || invoice.customerId
+    const invoiceId = invoice.id || `failed-${Date.now()}`
+    const row = await findSubscriptionRow({ customerId, subscriptionId })
+    if (!row) return
+
+    await query(
+      `UPDATE subscriptions
+       SET status = 'past_due', updated_at = NOW()
+       WHERE business_id = $1`,
+      [row.business_id],
+    )
+
+    const failed = await query(
+      `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status)
+       VALUES ($1, $2, $3, $4, $5, 'failed')
+       ON CONFLICT (square_payment_id) DO NOTHING
+       RETURNING id`,
+      [row.business_id, `failed-${invoiceId}`, 0, 'GBP', row.plan],
+    )
+
+    const email = await ownerEmailForBusiness(row.business_id)
+    if (failed.rows[0] && email && row.plan && row.plan !== 'free') {
+      await emailService.sendPaymentFailed(email, row.plan)
+    }
+  },
+
+  async handlePaymentEvent(payment) {
+    const paymentStatus = String(payment.status || '').toUpperCase()
+    const note = safeJsonParse(payment.note)
+    const customerId = payment.customer_id || payment.customerId || note?.customerId
+    const amount = Number(payment.amount_money?.amount || payment.amountMoney?.amount || 0)
+    const currency = payment.amount_money?.currency || payment.amountMoney?.currency || 'GBP'
+    const paymentId = payment.id
+    if (!customerId || !paymentId) return
+
+    const row = await findSubscriptionRow({ customerId })
+    if (!row) return
+
+    if (paymentStatus === 'FAILED' || paymentStatus === 'CANCELED') {
+      await query(
+        `UPDATE subscriptions SET status = 'past_due', updated_at = NOW() WHERE business_id = $1`,
+        [row.business_id],
+      )
+      const failed = await query(
+        `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status)
+         VALUES ($1, $2, $3, $4, $5, 'failed')
+         ON CONFLICT (square_payment_id) DO NOTHING
+         RETURNING id`,
+        [row.business_id, paymentId, amount, currency, note?.plan || row.plan],
+      )
+      const email = await ownerEmailForBusiness(row.business_id)
+      if (failed.rows[0] && email && row.plan !== 'free') {
+        await emailService.sendPaymentFailed(email, note?.plan || row.plan)
+      }
+      return
+    }
+
+    if (paymentStatus !== 'COMPLETED') return
+
+    const plan = note?.plan && PAID_SQUARE_PLANS.includes(note.plan) ? note.plan : row.plan
+    const nextEnd = extractPeriodEnd(payment) || addYears(row.current_period_end || new Date(), 1)
+
+    if (plan && PAID_SQUARE_PLANS.includes(plan)) {
+      await query(
+        `UPDATE subscriptions
+         SET plan = $1, status = 'active', current_period_end = $2, updated_at = NOW()
+         WHERE business_id = $3`,
+        [plan, nextEnd, row.business_id],
+      )
+    } else {
+      await setPeriodEnd(row.business_id, nextEnd)
+    }
+
+    await this.recordSuccessfulCharge({
+      businessId: row.business_id,
+      paymentId,
+      amount,
+      currency,
+      plan,
+      nextBillingDate: nextEnd,
+    })
+  },
+
+  async recordSuccessfulCharge({ businessId, paymentId, amount, currency, plan, nextBillingDate }) {
+    const inserted = await query(
+      `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status)
+       VALUES ($1, $2, $3, $4, $5, 'succeeded')
+       ON CONFLICT (square_payment_id) DO NOTHING
+       RETURNING id`,
+      [businessId, paymentId, amount, currency || 'GBP', plan || 'subscription'],
+    )
+    if (!inserted.rows[0]) return
+
+    const duplicateNotify = await query(
+      `SELECT id FROM payments
+       WHERE business_id = $1
+         AND status = 'succeeded'
+         AND id <> $2
+         AND created_at > NOW() - INTERVAL '15 minutes'
+       LIMIT 1`,
+      [businessId, inserted.rows[0].id],
+    )
+    if (duplicateNotify.rows[0]) return
+
+    const prior = await query(
+      `SELECT COUNT(*)::int AS count
+       FROM payments
+       WHERE business_id = $1 AND status = 'succeeded'`,
+      [businessId],
+    )
+    const isRenewal = Number(prior.rows[0]?.count || 0) > 1
+    const email = await ownerEmailForBusiness(businessId)
+    if (!email || !(amount > 0)) return
+
+    if (isRenewal) {
+      await emailService.sendSubscriptionRenewed(email, plan, {
+        amount,
+        currency,
+        nextBillingDate,
+      })
+      await emailService.sendPaymentReceipt(email, amount, plan, { currency, renewal: true })
+    } else {
+      await emailService.sendPaymentReceipt(email, amount, plan, { currency })
+    }
+  },
+
+  async processRenewalReminders() {
+    await ensureSquareColumns()
+    const due = await query(
+      `SELECT s.*, u.email
+       FROM subscriptions s
+       JOIN businesses b ON b.id = s.business_id
+       JOIN users u ON u.id = b.user_id
+       WHERE s.plan <> 'free'
+         AND s.status IN ('active', 'trialing')
+         AND s.current_period_end IS NOT NULL
+         AND s.current_period_end > NOW()
+         AND s.current_period_end <= NOW() + INTERVAL '7 days'
+         AND (s.renewal_reminder_period_end IS DISTINCT FROM s.current_period_end)`,
+    )
+
+    for (const row of due.rows) {
+      try {
+        await emailService.sendRenewalReminder(row.email, row.plan, {
+          nextBillingDate: row.current_period_end,
+        })
+        await query(
+          `UPDATE subscriptions
+           SET renewal_reminder_period_end = current_period_end, updated_at = NOW()
+           WHERE id = $1`,
+          [row.id],
+        )
+      } catch (err) {
+        console.error('Renewal reminder failed:', err.message)
+      }
+    }
+
+    return due.rows.length
   },
 
   async getPaymentHistory(businessId) {

@@ -38,6 +38,27 @@ function escapeHtml(value = '') {
     .replaceAll("'", '&#39;')
 }
 
+function formatEmailDate(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)
+}
+
+function formatEmailMoney(amount, currency = 'GBP') {
+  const code = String(currency || 'GBP').toUpperCase()
+  const cents = Number(amount) || 0
+  try {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100)
+  } catch {
+    return `${code} ${(cents / 100).toFixed(2)}`
+  }
+}
+
 function sectionCard({ title, body, accent = BRAND_SOFT }) {
   return `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;border-collapse:collapse;">
@@ -517,30 +538,93 @@ export const emailService = {
     })
   },
 
-  async sendSubscriptionConfirmation(to, plan) {
+  async sendSubscriptionConfirmation(to, plan, extras = {}) {
+    const nextBill = extras.nextBillingDate ? formatEmailDate(extras.nextBillingDate) : null
     await sendTemplatedEmail({
       to,
       subject: `Subscription confirmed - ${plan} plan`,
       template: {
         eyebrow: 'Subscription active',
         title: `${escapeHtml(plan)} plan confirmed`,
-        intro: `Your <strong>${escapeHtml(plan)}</strong> subscription is now active.`,
-        body: 'Thank you for choosing Check A Review. Your account is ready to use with the features included in your plan.',
+        intro: `Your <strong>${escapeHtml(plan)}</strong> subscription is now active and renews yearly.`,
+        body: nextBill
+          ? `Thank you for choosing Check A Review. Your next yearly renewal is on <strong>${escapeHtml(nextBill)}</strong>.`
+          : 'Thank you for choosing Check A Review. Your account is ready to use with the features included in your plan. Billing renews automatically each year.',
         primaryCta: { label: 'Open business dashboard', href: `${env.BUSINESS_PORTAL_URL}/dashboard` },
       },
     })
   },
 
-  async sendPaymentReceipt(to, amount, plan) {
+  async sendSubscriptionRenewed(to, plan, extras = {}) {
+    const nextBill = extras.nextBillingDate ? formatEmailDate(extras.nextBillingDate) : null
+    const paid = extras.amount != null ? formatEmailMoney(extras.amount, extras.currency) : null
     await sendTemplatedEmail({
       to,
-      subject: 'Payment receipt',
+      subject: `Your ${plan} plan has been renewed`,
       template: {
-        eyebrow: 'Payment successful',
-        title: 'Your payment was received',
-        intro: `We successfully processed your payment for the <strong>${escapeHtml(plan)}</strong> plan.`,
-        body: `Amount paid: <strong>$${(amount / 100).toFixed(2)}</strong>.`,
-        stats: [{ value: `$${(amount / 100).toFixed(2)}`, label: 'Paid' }],
+        eyebrow: 'Yearly renewal',
+        title: `${escapeHtml(plan)} plan renewed`,
+        intro: `We successfully renewed your <strong>${escapeHtml(plan)}</strong> subscription for another year.`,
+        body: [
+          paid ? `Amount charged: <strong>${escapeHtml(paid)}</strong>.` : '',
+          nextBill ? `Your next yearly renewal is on <strong>${escapeHtml(nextBill)}</strong>.` : '',
+          'No action is needed. Your plan features stay active.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+        stats: [
+          ...(paid ? [{ value: paid, label: 'Renewal charge' }] : []),
+          ...(nextBill ? [{ value: nextBill, label: 'Next renewal' }] : []),
+        ],
+        primaryCta: { label: 'View subscription', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      },
+    })
+  },
+
+  async sendRenewalReminder(to, plan, extras = {}) {
+    const nextBill = extras.nextBillingDate ? formatEmailDate(extras.nextBillingDate) : 'soon'
+    await sendTemplatedEmail({
+      to,
+      subject: `Your ${plan} plan renews ${typeof nextBill === 'string' ? nextBill : 'soon'}`,
+      template: {
+        eyebrow: 'Upcoming renewal',
+        title: 'Your yearly subscription renews soon',
+        intro: `Your <strong>${escapeHtml(plan)}</strong> plan will automatically renew on <strong>${escapeHtml(String(nextBill))}</strong>.`,
+        body: 'Square will charge the card on file for the next year. You can review or change your plan in the business portal before the renewal date.',
+        primaryCta: { label: 'Manage subscription', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      },
+    })
+  },
+
+  async sendPaymentFailed(to, plan, extras = {}) {
+    await sendTemplatedEmail({
+      to,
+      subject: `Payment failed for your ${plan} plan`,
+      template: {
+        eyebrow: 'Action needed',
+        title: 'Yearly renewal payment failed',
+        intro: `We could not collect the yearly renewal for your <strong>${escapeHtml(plan)}</strong> plan.`,
+        body: extras.detail
+          ? escapeHtml(extras.detail)
+          : 'Your subscription is marked past due. Please retry checkout or update your payment method so your plan features stay available.',
+        primaryCta: { label: 'Retry payment', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      },
+    })
+  },
+
+  async sendPaymentReceipt(to, amount, plan, extras = {}) {
+    const paid = formatEmailMoney(amount, extras.currency)
+    await sendTemplatedEmail({
+      to,
+      subject: extras.renewal ? `Renewal receipt - ${plan} plan` : 'Payment receipt',
+      template: {
+        eyebrow: extras.renewal ? 'Yearly renewal' : 'Payment successful',
+        title: extras.renewal ? 'Your renewal payment was received' : 'Your payment was received',
+        intro: extras.renewal
+          ? `We successfully processed the yearly renewal for the <strong>${escapeHtml(plan)}</strong> plan.`
+          : `We successfully processed your payment for the <strong>${escapeHtml(plan)}</strong> plan.`,
+        body: `Amount paid: <strong>${escapeHtml(paid)}</strong>.`,
+        stats: [{ value: paid, label: extras.renewal ? 'Renewed' : 'Paid' }],
         primaryCta: { label: 'View subscription', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
       },
     })

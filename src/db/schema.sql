@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   status VARCHAR(20) NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'cancelled', 'past_due', 'trialing')),
   current_period_end TIMESTAMPTZ,
+  renewal_reminder_period_end TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
