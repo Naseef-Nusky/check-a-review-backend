@@ -206,7 +206,13 @@ export const subscriptionService = {
       [plan, businessId, expectedEnd],
     )
 
-    return { sessionId: link.id, url: link.url, plan }
+    return {
+      sessionId: link.id,
+      url: link.url,
+      previewUrl: link.previewUrl,
+      sandboxMode: link.sandboxMode,
+      plan,
+    }
   },
 
   async createPortal(businessId, userId) {
