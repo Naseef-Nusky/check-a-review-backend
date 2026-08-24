@@ -3,6 +3,35 @@ import { env } from '../config/env.js'
 import { query } from '../db/pool.js'
 import { AppError } from '../utils/helpers.js'
 import { isCrmRole, isSuperAdmin } from '../utils/roles.js'
+import { ensureTokenVersionColumn } from '../utils/session.js'
+
+async function loadActiveUser(decoded) {
+  if (!decoded?.id) throw new AppError('Authentication required', 401)
+  await ensureTokenVersionColumn()
+  const result = await query(
+    `SELECT id, email, name, role, token_version
+     FROM users
+     WHERE id = $1`,
+    [decoded.id],
+  )
+  if (result.rows.length === 0) throw new AppError('Invalid or expired token', 401)
+  const dbUser = result.rows[0]
+  if (decoded.role && dbUser.role !== decoded.role) {
+    throw new AppError('Invalid or expired token', 401)
+  }
+  const tokenVersion = Number(dbUser.token_version || 0)
+  const claimedVersion = Number(decoded.tv ?? 0)
+  if (tokenVersion !== claimedVersion) {
+    throw new AppError('Invalid or expired token', 401)
+  }
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name,
+    role: dbUser.role,
+    tv: tokenVersion,
+  }
+}
 
 export function authenticate(req, _res, next) {
   const header = req.headers.authorization
@@ -11,13 +40,16 @@ export function authenticate(req, _res, next) {
   }
 
   const token = header.split(' ')[1]
-  try {
-    const decoded = jwt.verify(token, env.JWT_SECRET)
-    req.user = decoded
-    next()
-  } catch {
-    next(new AppError('Invalid or expired token', 401))
-  }
+  ;(async () => {
+    try {
+      const decoded = jwt.verify(token, env.JWT_SECRET)
+      req.user = await loadActiveUser(decoded)
+      next()
+    } catch (err) {
+      if (err instanceof AppError) return next(err)
+      next(new AppError('Invalid or expired token', 401))
+    }
+  })()
 }
 
 export function authorize(...roles) {
@@ -79,10 +111,13 @@ export function optionalAuth(req, _res, next) {
   if (!header?.startsWith('Bearer ')) return next()
 
   const token = header.split(' ')[1]
-  try {
-    req.user = jwt.verify(token, env.JWT_SECRET)
-  } catch {
-    // ignore invalid token for optional auth
-  }
-  next()
+  ;(async () => {
+    try {
+      const decoded = jwt.verify(token, env.JWT_SECRET)
+      req.user = await loadActiveUser(decoded)
+    } catch {
+      // ignore invalid token for optional auth
+    }
+    next()
+  })()
 }

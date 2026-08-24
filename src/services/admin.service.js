@@ -3,6 +3,7 @@ import { query } from '../db/pool.js'
 import { AppError, slugify } from '../utils/helpers.js'
 import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
+import { bumpTokenVersion } from '../utils/session.js'
 import { ensureBusinessStatusColumn } from './business.service.js'
 
 let crmRolesReady = false
@@ -91,6 +92,10 @@ export const adminService = {
       ],
     )
 
+    if (password && String(password).trim()) {
+      await bumpTokenVersion(id)
+    }
+
     const reviewCount = await query('SELECT COUNT(*) FROM reviews WHERE user_id = $1', [id])
     return {
       ...result.rows[0],
@@ -150,7 +155,10 @@ export const adminService = {
       throw new AppError('Role must be admin or viewer', 400)
     }
 
-    const existing = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()])
+    const existing = await query(
+      `SELECT id FROM users WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')`,
+      [email.toLowerCase()],
+    )
     if (existing.rows.length > 0) {
       throw new AppError('Email already registered', 409)
     }
@@ -187,10 +195,11 @@ export const adminService = {
 
     let nextEmail = null
     if (email && email.toLowerCase() !== staff.email) {
-      const taken = await query('SELECT id FROM users WHERE email = $1 AND id <> $2', [
-        email.toLowerCase(),
-        id,
-      ])
+      const taken = await query(
+        `SELECT id FROM users
+         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer') AND id <> $2`,
+        [email.toLowerCase(), id],
+      )
       if (taken.rows.length > 0) throw new AppError('Email already registered', 409)
       nextEmail = email.toLowerCase()
     }
@@ -211,6 +220,9 @@ export const adminService = {
        RETURNING id, name, email, role, email_verified, created_at, updated_at`,
       [name?.trim() || null, nextEmail, role || null, passwordHash, id],
     )
+    if (password) {
+      await bumpTokenVersion(id)
+    }
     return result.rows[0]
   },
 

@@ -1,9 +1,10 @@
 import app from './app.js'
-import { env } from './config/env.js'
+import { env, assertProductionSecrets } from './config/env.js'
 import { pool } from './db/pool.js'
 
 async function start() {
   try {
+    assertProductionSecrets()
     await pool.query('SELECT NOW()')
     console.log('Database connected successfully')
   } catch (err) {
@@ -23,7 +24,7 @@ async function start() {
     try {
       const { subscriptionService } = await import('./services/subscription.service.js')
       const sent = await subscriptionService.processRenewalReminders()
-      if (sent) console.log(`Sent ${sent} yearly renewal reminder email(s)`)
+      if (sent) console.log(`Sent ${sent} monthly renewal reminder email(s)`)
     } catch (err) {
       console.error('Renewal reminder job failed:', err.message)
     }

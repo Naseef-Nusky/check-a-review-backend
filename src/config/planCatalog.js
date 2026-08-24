@@ -1,4 +1,4 @@
-export const CATALOG_VERSION = 4
+export const CATALOG_VERSION = 5
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
 export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium', 'enterprise']
@@ -11,10 +11,6 @@ export function isUnlimited(value) {
 
 export function formatLimit(value) {
   return isUnlimited(value) ? 'Unlimited' : String(value)
-}
-
-export function annualChargeCents(monthlyDollars) {
-  return Math.round(Number(monthlyDollars || 0) * 12 * 100)
 }
 
 export function monthlyCents(monthlyDollars) {
@@ -46,15 +42,16 @@ function plan({
   description,
   features,
 }) {
+  const amount = monthlyCents(monthlyDollars)
   return {
     key,
     name,
     tagline,
     description,
     monthlyDollars,
-    monthlyAmountCents: monthlyCents(monthlyDollars),
-    amountCents: annualChargeCents(monthlyDollars),
-    cadence: monthlyDollars > 0 ? 'YEARLY' : 'MONTHLY',
+    monthlyAmountCents: amount,
+    amountCents: amount,
+    cadence: 'MONTHLY',
     perDomain,
     checkout,
     trialDays,
@@ -76,8 +73,8 @@ function plan({
     priceLabel: monthlyDollars > 0 ? `$${monthlyDollars}` : 'Custom',
     periodLabel: monthlyDollars > 0
       ? perDomain
-        ? '/month, per domain, billed annually'
-        : '/month, billed annually'
+        ? '/month, per domain'
+        : '/month'
       : '',
   }
 }
@@ -324,7 +321,7 @@ export function buildPricingContentFromCatalog() {
     heroSubtitle:
       'Plans built like a modern review platform: collect feedback, showcase TrustScore, and convert trust into demand.',
     billingNote:
-      'Paid plans are priced per month and billed annually in USD. Plus and Premium are billed per domain.',
+      'Paid plans are priced and billed monthly in USD. Plus and Premium are billed per domain.',
     trustBadge: '14-day free trial on Plus',
     logos: [],
     steps: [
@@ -379,11 +376,11 @@ export function buildPricingContentFromCatalog() {
     faqs: [
       {
         question: 'Are prices billed monthly or annually?',
-        answer: 'Prices are shown per month in USD and billed upfront annually. Plus and Premium are billed per active domain.',
+        answer: 'Prices are shown per month in USD and billed monthly. Plus and Premium are billed per active domain.',
       },
       {
         question: 'Does Plus include a free trial?',
-        answer: 'Yes. Plus includes a 14-day free trial for new customers before annual billing begins.',
+        answer: 'Yes. Plus includes a 14-day free trial for new customers before monthly billing begins.',
       },
       {
         question: 'How do I get Premium or Enterprise?',

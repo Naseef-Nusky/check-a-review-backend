@@ -36,7 +36,7 @@ router.patch(
   [
     body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Name cannot be empty'),
     body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email required'),
-    body('password').optional({ checkFalsy: true }).isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('password').optional({ checkFalsy: true }).isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('email_verified').optional().isBoolean().withMessage('email_verified must be boolean'),
   ],
   validate,
@@ -74,7 +74,7 @@ router.post(
   [
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Valid email required'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('role').isIn(['admin', 'viewer']).withMessage('Role must be admin or viewer'),
   ],
   validate,
@@ -94,7 +94,7 @@ router.patch(
   [
     body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Name cannot be empty'),
     body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email required'),
-    body('password').optional({ checkFalsy: true }).isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('password').optional({ checkFalsy: true }).isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('role').optional().isIn(['admin', 'viewer']).withMessage('Role must be admin or viewer'),
   ],
   validate,
@@ -269,7 +269,7 @@ router.post(
   [
     body('name').trim().notEmpty().withMessage('Business name is required'),
     body('email').isEmail().withMessage('Owner email must be valid'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('category').trim().notEmpty().withMessage('Category is required'),
     body('website').optional({ nullable: true }).isString().withMessage('Website must be a string'),
     body('phone').optional({ nullable: true }).isString().withMessage('Phone must be a string'),

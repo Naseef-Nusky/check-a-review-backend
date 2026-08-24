@@ -396,9 +396,10 @@ export const emailService = {
     })
   },
 
-  async sendPasswordResetEmail(to, token) {
+  async sendPasswordResetEmail(to, token, resetBaseUrl = env.PUBLIC_SITE_URL) {
     const APP_NAME = await appName()
-    const resetUrl = `${env.PUBLIC_SITE_URL}/reset-password?token=${token}`
+    const base = String(resetBaseUrl || env.PUBLIC_SITE_URL).replace(/\/$/, '')
+    const resetUrl = `${base}/reset-password?token=${encodeURIComponent(token)}`
     await sendTemplatedEmail({
       to,
       subject: 'Reset your password',
@@ -546,10 +547,10 @@ export const emailService = {
       template: {
         eyebrow: 'Subscription active',
         title: `${escapeHtml(plan)} plan confirmed`,
-        intro: `Your <strong>${escapeHtml(plan)}</strong> subscription is now active and renews yearly.`,
+        intro: `Your <strong>${escapeHtml(plan)}</strong> subscription is now active and renews monthly.`,
         body: nextBill
-          ? `Thank you for choosing Check A Review. Your next yearly renewal is on <strong>${escapeHtml(nextBill)}</strong>.`
-          : 'Thank you for choosing Check A Review. Your account is ready to use with the features included in your plan. Billing renews automatically each year.',
+          ? `Thank you for choosing Check A Review. Your next monthly renewal is on <strong>${escapeHtml(nextBill)}</strong>.`
+          : 'Thank you for choosing Check A Review. Your account is ready to use with the features included in your plan. Billing renews automatically each month.',
         primaryCta: { label: 'Open business dashboard', href: `${env.BUSINESS_PORTAL_URL}/dashboard` },
       },
     })
@@ -562,12 +563,12 @@ export const emailService = {
       to,
       subject: `Your ${plan} plan has been renewed`,
       template: {
-        eyebrow: 'Yearly renewal',
+        eyebrow: 'Monthly renewal',
         title: `${escapeHtml(plan)} plan renewed`,
-        intro: `We successfully renewed your <strong>${escapeHtml(plan)}</strong> subscription for another year.`,
+        intro: `We successfully renewed your <strong>${escapeHtml(plan)}</strong> subscription for another month.`,
         body: [
           paid ? `Amount charged: <strong>${escapeHtml(paid)}</strong>.` : '',
-          nextBill ? `Your next yearly renewal is on <strong>${escapeHtml(nextBill)}</strong>.` : '',
+          nextBill ? `Your next monthly renewal is on <strong>${escapeHtml(nextBill)}</strong>.` : '',
           'No action is needed. Your plan features stay active.',
         ]
           .filter(Boolean)
@@ -588,9 +589,9 @@ export const emailService = {
       subject: `Your ${plan} plan renews ${typeof nextBill === 'string' ? nextBill : 'soon'}`,
       template: {
         eyebrow: 'Upcoming renewal',
-        title: 'Your yearly subscription renews soon',
+        title: 'Your monthly subscription renews soon',
         intro: `Your <strong>${escapeHtml(plan)}</strong> plan will automatically renew on <strong>${escapeHtml(String(nextBill))}</strong>.`,
-        body: 'Square will charge the card on file for the next year. You can review or change your plan in the business portal before the renewal date.',
+        body: 'Square will charge the card on file for the next month. You can review or change your plan in the business portal before the renewal date.',
         primaryCta: { label: 'Manage subscription', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
       },
     })
@@ -602,8 +603,8 @@ export const emailService = {
       subject: `Payment failed for your ${plan} plan`,
       template: {
         eyebrow: 'Action needed',
-        title: 'Yearly renewal payment failed',
-        intro: `We could not collect the yearly renewal for your <strong>${escapeHtml(plan)}</strong> plan.`,
+        title: 'Monthly renewal payment failed',
+        intro: `We could not collect the monthly renewal for your <strong>${escapeHtml(plan)}</strong> plan.`,
         body: extras.detail
           ? escapeHtml(extras.detail)
           : 'Your subscription is marked past due. Please retry checkout or update your payment method so your plan features stay available.',
@@ -618,10 +619,10 @@ export const emailService = {
       to,
       subject: extras.renewal ? `Renewal receipt - ${plan} plan` : 'Payment receipt',
       template: {
-        eyebrow: extras.renewal ? 'Yearly renewal' : 'Payment successful',
+        eyebrow: extras.renewal ? 'Monthly renewal' : 'Payment successful',
         title: extras.renewal ? 'Your renewal payment was received' : 'Your payment was received',
         intro: extras.renewal
-          ? `We successfully processed the yearly renewal for the <strong>${escapeHtml(plan)}</strong> plan.`
+          ? `We successfully processed the monthly renewal for the <strong>${escapeHtml(plan)}</strong> plan.`
           : `We successfully processed your payment for the <strong>${escapeHtml(plan)}</strong> plan.`,
         body: `Amount paid: <strong>${escapeHtml(paid)}</strong>.`,
         stats: [{ value: paid, label: extras.renewal ? 'Renewed' : 'Paid' }],

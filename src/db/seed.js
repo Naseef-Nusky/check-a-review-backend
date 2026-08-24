@@ -5,6 +5,11 @@ import { slugify } from '../utils/helpers.js'
 import { categoryService } from '../services/category.service.js'
 
 async function seed() {
+  if (env.NODE_ENV === 'production' && process.env.ALLOW_SEED !== 'true') {
+    console.error('Refusing to seed in production. Set ALLOW_SEED=true if you really need it.')
+    process.exit(1)
+  }
+
   console.log('Seeding database...')
 
   const categorySeed = await categoryService.seedDefaultCategories()
@@ -26,7 +31,10 @@ async function seed() {
       ALTER TABLE users ADD CONSTRAINT users_role_check
       CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
     `)
-    const taken = await query('SELECT id FROM users WHERE email = $1', [env.ADMIN_EMAIL])
+    const taken = await query(
+      `SELECT id FROM users WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')`,
+      [env.ADMIN_EMAIL],
+    )
     if (taken.rows.length === 0) {
       await query(
         `UPDATE users
@@ -38,7 +46,12 @@ async function seed() {
     }
   }
 
-  const adminExists = await query('SELECT id, role FROM users WHERE email = $1', [env.ADMIN_EMAIL])
+  const adminExists = await query(
+    `SELECT id, role FROM users
+     WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')
+     LIMIT 1`,
+    [env.ADMIN_EMAIL],
+  )
   if (adminExists.rows.length === 0) {
     const passwordHash = await bcrypt.hash(env.ADMIN_PASSWORD, 12)
     await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
@@ -158,9 +171,9 @@ async function seed() {
       userId = existingUser.rows[0].id
       await query(
         `UPDATE users
-         SET name = $1, password_hash = $2, email_verified = TRUE, updated_at = NOW()
-         WHERE id = $3`,
-        [biz.name, passwordHash, userId],
+         SET name = $1, email_verified = TRUE, updated_at = NOW()
+         WHERE id = $2`,
+        [biz.name, userId],
       )
     } else {
       const userResult = await query(
@@ -235,7 +248,10 @@ async function seed() {
     console.log(`Plan business seeded: ${biz.name} (${biz.plan})`)
   }
 
-  const customerExists = await query('SELECT id FROM users WHERE email = $1', ['customer@example.com'])
+  const customerExists = await query(
+    `SELECT id FROM users WHERE email = $1 AND role = 'customer'`,
+    ['customer@example.com'],
+  )
   if (customerExists.rows.length === 0) {
     const passwordHash = await bcrypt.hash('Customer@123', 12)
     await query(

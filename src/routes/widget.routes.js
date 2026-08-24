@@ -78,20 +78,14 @@ function renderBlockedHtml({ title, message, domains = [] }) {
 }
 
 async function assertWidgetDomainAccess(req, businessId) {
-  const preview =
-    req.query.preview === '1' ||
-    req.query.preview === 'true' ||
-    String(req.query.mode || '').toLowerCase() === 'preview'
-
-  const host =
-    extractHost(req.get('referer')) ||
-    extractHost(req.get('origin')) ||
-    extractHost(req.query.host)
+  const host = extractHost(req.get('referer')) || extractHost(req.get('origin'))
+  const appHosts = appAllowedHosts()
+  const previewFromApp = Boolean(host && appHosts.some((appHost) => domainService.hostMatchesDomain(host, appHost)))
 
   const access = await domainService.getWidgetAccess(businessId, {
     host,
-    preview,
-    appHosts: appAllowedHosts(),
+    preview: previewFromApp,
+    appHosts,
   })
 
   if (!access.allowed) {

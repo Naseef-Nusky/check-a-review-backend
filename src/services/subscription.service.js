@@ -56,9 +56,9 @@ function extractPeriodEnd(obj = {}) {
   )
 }
 
-function addYears(from, years = 1) {
+function addMonths(from, months = 1) {
   const date = new Date(from)
-  date.setFullYear(date.getFullYear() + years)
+  date.setMonth(date.getMonth() + Number(months || 0))
   return date
 }
 
@@ -196,7 +196,7 @@ export const subscriptionService = {
     })
 
     const trialDays = Number(planRow.trialDays || planRow.trial_days || 0)
-    const expectedEnd = addYears(addDays(new Date(), trialDays), 1)
+    const expectedEnd = addMonths(addDays(new Date(), trialDays), 1)
     await query(
       `UPDATE subscriptions
        SET pending_plan = $1,
@@ -341,7 +341,7 @@ export const subscriptionService = {
     const row = await findSubscriptionRow({ customerId, subscriptionId })
     if (!row) return
 
-    const nextEnd = extractPeriodEnd(invoice) || addYears(new Date(), 1)
+    const nextEnd = extractPeriodEnd(invoice) || addMonths(new Date(), 1)
     await query(
       `UPDATE subscriptions
        SET status = 'active',
@@ -423,7 +423,7 @@ export const subscriptionService = {
     if (paymentStatus !== 'COMPLETED') return
 
     const plan = note?.plan && PAID_SQUARE_PLANS.includes(note.plan) ? note.plan : row.plan
-    const nextEnd = extractPeriodEnd(payment) || addYears(row.current_period_end || new Date(), 1)
+    const nextEnd = extractPeriodEnd(payment) || addMonths(row.current_period_end || new Date(), 1)
 
     if (plan && PAID_SQUARE_PLANS.includes(plan)) {
       await query(

@@ -1,11 +1,18 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { OAuth2Client } from 'google-auth-library'
-import { v4 as uuidv4 } from 'uuid'
 import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { AppError, slugify, omitPassword } from '../utils/helpers.js'
 import { emailService } from './email.service.js'
+import {
+  assertStrongPassword,
+  bumpTokenVersion,
+  createResetToken,
+  createVerificationCode,
+  ensureTokenVersionColumn,
+  hashSecret,
+} from '../utils/session.js'
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(env.GOOGLE_CLIENT_ID)
@@ -13,7 +20,13 @@ const googleClient = env.GOOGLE_CLIENT_ID
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role, name: user.name },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      tv: Number(user.token_version || 0),
+    },
     env.JWT_SECRET,
     { expiresIn: env.JWT_EXPIRES_IN },
   )
@@ -105,11 +118,8 @@ async function readyAccountSeparation() {
   if (emailRoleReady) return
   await ensureEmailRoleSeparation()
   await ensurePendingRegistrations()
+  await ensureTokenVersionColumn()
   emailRoleReady = true
-}
-
-function createVerificationCode() {
-  return String(Math.floor(100000 + Math.random() * 900000))
 }
 
 async function storePendingRegistration({
@@ -146,7 +156,7 @@ async function storePendingRegistration({
       website || null,
       phone || null,
       description || null,
-      code,
+      hashSecret(code),
     ],
   )
   await emailService.sendVerificationEmail(email, name, code)
@@ -204,6 +214,7 @@ export const authService = {
     const emailLower = String(email || '').trim().toLowerCase()
     const accountRole = role === 'business' ? 'business' : 'customer'
     const trimmedName = String(name || '').trim()
+    assertStrongPassword(password)
 
     const existing = await query('SELECT id FROM users WHERE email = $1 AND role = $2', [
       emailLower,
@@ -282,26 +293,12 @@ export const authService = {
             'EMAIL_NOT_VERIFIED',
           )
         }
-
-        const other = await query(
-          'SELECT role FROM users WHERE email = $1 AND role = $2 LIMIT 1',
-          [emailLower, role === 'business' ? 'customer' : 'business'],
-        )
-        if (other.rows[0]) {
-          throw new AppError(
-            role === 'business'
-              ? 'No business account found for this email. Create one in the business portal, or log in as a reviewer on the main site.'
-              : 'No reviewer account found for this email. If you have a business account, use the business portal login.',
-            401,
-            'WRONG_PORTAL',
-          )
-        }
       }
       throw new AppError('Invalid email or password', 401)
     }
 
     if (!user.password_hash) {
-      throw new AppError('This account uses Google sign-in. Please continue with Google.', 401)
+      throw new AppError('Invalid email or password', 401)
     }
 
     const valid = await bcrypt.compare(password, user.password_hash)
@@ -398,7 +395,7 @@ export const authService = {
       throw new AppError('Enter your email and the 6-digit verification code', 400)
     }
 
-    const pendingParams = [normalizedEmail, normalizedCode]
+    const pendingParams = [normalizedEmail, hashSecret(normalizedCode)]
     let pendingRoleFilter = ''
     if (accountRole) {
       pendingRoleFilter = ' AND role = $3'
@@ -450,7 +447,7 @@ export const authService = {
     }
 
     // Legacy path for any leftover unverified user + token rows.
-    const legacyParams = [normalizedEmail, normalizedCode]
+    const legacyParams = [normalizedEmail, hashSecret(normalizedCode)]
     let roleFilter = ''
     if (accountRole) {
       roleFilter = ' AND u.role = $3'
@@ -512,7 +509,7 @@ export const authService = {
       `UPDATE pending_registrations
        SET token = $1, expires_at = NOW() + INTERVAL '15 minutes', updated_at = NOW()
        WHERE id = $2`,
-      [code, row.id],
+      [hashSecret(code), row.id],
     )
     await emailService.sendVerificationEmail(row.email, row.name, code)
     return { message: 'A new verification code has been sent' }
@@ -521,30 +518,49 @@ export const authService = {
   async forgotPassword(email, role) {
     await readyAccountSeparation()
     const emailLower = String(email || '').trim().toLowerCase()
-    const accountRole = role === 'business' ? 'business' : 'customer'
-    const result = await query('SELECT id FROM users WHERE email = $1 AND role = $2', [
-      emailLower,
-      accountRole,
-    ])
-    if (result.rows.length === 0) {
+    let userId = null
+    let resetBaseUrl = env.PUBLIC_SITE_URL
+
+    if (role === 'crm') {
+      const result = await query(
+        `SELECT id FROM users
+         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')
+         ORDER BY CASE role WHEN 'super_admin' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END
+         LIMIT 1`,
+        [emailLower],
+      )
+      userId = result.rows[0]?.id || null
+      resetBaseUrl = env.ADMIN_PORTAL_URL
+    } else {
+      const accountRole = role === 'business' ? 'business' : 'customer'
+      const result = await query('SELECT id FROM users WHERE email = $1 AND role = $2', [
+        emailLower,
+        accountRole,
+      ])
+      userId = result.rows[0]?.id || null
+      resetBaseUrl = accountRole === 'business' ? env.BUSINESS_PORTAL_URL : env.PUBLIC_SITE_URL
+    }
+
+    if (!userId) {
       return { message: 'If the email exists, a reset link has been sent' }
     }
 
-    const token = uuidv4()
-    await query('DELETE FROM password_reset_tokens WHERE user_id = $1', [result.rows[0].id])
+    const token = createResetToken()
+    await query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId])
     await query(
       `INSERT INTO password_reset_tokens (user_id, token, expires_at)
        VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
-      [result.rows[0].id, token],
+      [userId, hashSecret(token)],
     )
-    await emailService.sendPasswordResetEmail(emailLower, token)
+    await emailService.sendPasswordResetEmail(emailLower, token, resetBaseUrl)
     return { message: 'If the email exists, a reset link has been sent' }
   },
 
   async resetPassword(token, newPassword) {
+    assertStrongPassword(newPassword)
     const result = await query(
       `SELECT * FROM password_reset_tokens WHERE token = $1 AND expires_at > NOW()`,
-      [token],
+      [hashSecret(token)],
     )
     if (result.rows.length === 0) throw new AppError('Invalid or expired reset token', 400)
 
@@ -553,6 +569,7 @@ export const authService = {
       passwordHash,
       result.rows[0].user_id,
     ])
+    await bumpTokenVersion(result.rows[0].user_id)
     await query('DELETE FROM password_reset_tokens WHERE user_id = $1', [result.rows[0].user_id])
     return { message: 'Password reset successfully' }
   },

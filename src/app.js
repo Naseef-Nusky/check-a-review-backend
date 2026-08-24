@@ -16,7 +16,7 @@ const app = express()
 
 // Behind a reverse proxy the original scheme/host arrive as X-Forwarded-* headers,
 // which the widget needs to build absolute embed and image URLs.
-app.set('trust proxy', true)
+app.set('trust proxy', 1)
 
 // Widgets are meant to be embedded on any customer website, so they opt out of
 // the frame-blocking headers Helmet applies to the rest of the API.

@@ -83,10 +83,13 @@ function buildBillingNoteFromPlans(existingNote, billingPlans = []) {
     perDomainPlans.length > 0 ? ` ${perDomainPlans.join(' and ')} are billed per domain.` : ''
 
   if (!String(existingNote || '').trim()) {
-    return `Paid plans are priced per month and billed annually in ${primaryCurrency}.${perDomainText}`
+    return `Paid plans are priced and billed monthly in ${primaryCurrency}.${perDomainText}`
   }
 
   return String(existingNote)
+    .replace(/priced per month and billed annually/gi, 'priced and billed monthly')
+    .replace(/billed annually/gi, 'billed monthly')
+    .replace(/billed upfront annually/gi, 'billed monthly')
     .replace(/in\s+[A-Z]{3}\b/i, `in ${primaryCurrency}`)
     .replace(/Starter, Plus, and Premium synced to Square in [A-Z]{3}\.?/i, `Paid plans are billed in ${primaryCurrency}.`)
 }

@@ -17,8 +17,27 @@ export function slugify(text) {
 }
 
 export function omitPassword(user) {
-  const { password_hash, ...safe } = user
-  return safe
+  return publicUser(user)
+}
+
+export function publicUser(user) {
+  if (!user) return null
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    bio: user.bio ?? null,
+    avatar_url: user.avatar_url ?? null,
+    email_verified: Boolean(user.email_verified),
+    created_at: user.created_at,
+  }
+}
+
+export function safeInternalPath(value, fallback = '/') {
+  const path = String(value || '')
+  if (!/^\/[A-Za-z0-9/_-]*$/.test(path) || path.startsWith('//')) return fallback
+  return path
 }
 
 export function paginate(query) {

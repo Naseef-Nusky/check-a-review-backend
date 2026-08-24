@@ -53,7 +53,7 @@ function squareCheckoutEmail(email) {
 }
 
 function squareCadence(cadence) {
-  const value = String(cadence || 'YEARLY').toUpperCase()
+  const value = String(cadence || 'MONTHLY').toUpperCase()
   if (value === 'YEARLY') return 'ANNUAL'
   return value
 }
@@ -123,7 +123,7 @@ export const squareService = {
     name,
     amountCents,
       currency = 'GBP',
-    cadence = 'YEARLY',
+    cadence = 'MONTHLY',
     trialDays = 0,
     existingPlanId = null,
     existingVariationId = null,
@@ -171,7 +171,7 @@ export const squareService = {
           type: 'SUBSCRIPTION_PLAN_VARIATION',
           id: variationTempId,
           subscriptionPlanVariationData: {
-            name: `${name || key} ${String(cadence || 'yearly').toLowerCase()}`,
+            name: `${name || key} ${String(cadence || 'monthly').toLowerCase()}`,
             subscriptionPlanId: planId,
             phases: buildPhases({ cadence, amountCents, trialDays, currency }),
           },

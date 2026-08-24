@@ -16,7 +16,7 @@ async function ensureBillingPlansTable() {
       name VARCHAR(120) NOT NULL,
       amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
       currency VARCHAR(10) NOT NULL DEFAULT 'GBP',
-      cadence VARCHAR(20) NOT NULL DEFAULT 'YEARLY',
+      cadence VARCHAR(20) NOT NULL DEFAULT 'MONTHLY',
       active BOOLEAN NOT NULL DEFAULT TRUE,
       square_plan_id VARCHAR(255),
       square_variation_id VARCHAR(255),
@@ -172,7 +172,7 @@ function mapPlan(row) {
     monthlyAmountCents,
     monthlyDollars: monthlyAmountCents / 100,
     currency: String(row.currency || 'GBP').toUpperCase(),
-    cadence: row.cadence || 'YEARLY',
+    cadence: row.cadence || 'MONTHLY',
     active: row.active,
     perDomain: Boolean(row.per_domain),
     trialDays: Number(row.trial_days || 0),
@@ -190,7 +190,8 @@ function mapPlan(row) {
         ? 'Contact sales'
         : formatCurrencyAmount(monthlyAmountCents, String(row.currency || 'GBP').toUpperCase()),
     periodLabel: catalog.periodLabel,
-    yearlyPriceLabel: `${formatCurrencyAmount(Number(row.amount_cents), String(row.currency || 'GBP').toUpperCase())} / year`,
+    yearlyPriceLabel: `${formatCurrencyAmount(Number(row.amount_cents), String(row.currency || 'GBP').toUpperCase())} / month`,
+    billingPeriodLabel: `${formatCurrencyAmount(Number(row.amount_cents), String(row.currency || 'GBP').toUpperCase())} / month`,
     synced: Boolean(row.square_plan_id),
     limitsLabel: {
       invitations: formatLimit(invitations),

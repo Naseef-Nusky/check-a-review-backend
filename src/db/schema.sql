@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE (email, role)
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+
 -- Pending signups (account is created only after email verification)
 CREATE TABLE IF NOT EXISTS pending_registrations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
