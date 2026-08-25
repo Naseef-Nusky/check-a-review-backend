@@ -209,7 +209,6 @@ export const subscriptionService = {
     return {
       sessionId: link.id,
       url: link.url,
-      previewUrl: link.previewUrl,
       sandboxMode: link.sandboxMode,
       plan,
     }

@@ -257,10 +257,10 @@ export const squareService = {
     }
 
     const paymentLink = response.paymentLink
-    const checkoutUrl = paymentLink?.url
-    const testingPanelUrl = paymentLink?.longUrl
+    // Always use the short checkout URL (pay page). Sandbox longUrl is the
+    // connect.squareupsandbox.com testing panel — skip that so users land on checkout.
+    const url = paymentLink?.url
     const isSandbox = String(env.SQUARE_ENVIRONMENT || 'sandbox').toLowerCase() !== 'production'
-    const url = (isSandbox && testingPanelUrl) ? testingPanelUrl : checkoutUrl
 
     if (!url) {
       throw new AppError('Failed to create Square checkout link', 502)
@@ -269,7 +269,6 @@ export const squareService = {
     return {
       id: paymentLink.id,
       url,
-      previewUrl: isSandbox ? checkoutUrl : undefined,
       sandboxMode: isSandbox,
     }
   },
