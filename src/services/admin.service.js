@@ -266,10 +266,12 @@ export const adminService = {
     const result = await query(
       `SELECT b.*,
               s.plan,
+              s.pending_plan,
               s.status as subscription_status,
               s.square_customer_id,
               s.square_subscription_id,
               s.current_period_end,
+              s.updated_at as subscription_updated_at,
               s.created_at as subscription_created_at,
               u.email as owner_email,
               u.name as owner_name,
@@ -535,16 +537,56 @@ export const adminService = {
 
   async getSubscriptions() {
     const result = await query(
-      `SELECT s.*, b.name as business_name FROM subscriptions s
-       JOIN businesses b ON b.id = s.business_id ORDER BY s.created_at DESC`,
+      `SELECT s.id,
+              s.business_id,
+              s.plan,
+              s.pending_plan,
+              s.status,
+              s.current_period_end,
+              s.square_customer_id,
+              s.square_subscription_id,
+              s.created_at,
+              s.updated_at,
+              b.name as business_name
+       FROM subscriptions s
+       JOIN businesses b ON b.id = s.business_id
+       ORDER BY s.updated_at DESC NULLS LAST, s.created_at DESC`,
     )
     return result.rows
   },
 
   async getPayments() {
     const result = await query(
-      `SELECT p.*, b.name as business_name FROM payments p
-       JOIN businesses b ON b.id = p.business_id ORDER BY p.created_at DESC`,
+      `SELECT p.id,
+              p.business_id,
+              p.square_payment_id,
+              p.amount,
+              p.currency,
+              p.plan,
+              p.status,
+              p.created_at,
+              b.name as business_name
+       FROM payments p
+       JOIN businesses b ON b.id = p.business_id
+       ORDER BY p.created_at DESC`,
+    )
+    return result.rows
+  },
+
+  async getBusinessPayments(businessId) {
+    const result = await query(
+      `SELECT p.id,
+              p.business_id,
+              p.square_payment_id,
+              p.amount,
+              p.currency,
+              p.plan,
+              p.status,
+              p.created_at
+       FROM payments p
+       WHERE p.business_id = $1
+       ORDER BY p.created_at DESC`,
+      [businessId],
     )
     return result.rows
   },

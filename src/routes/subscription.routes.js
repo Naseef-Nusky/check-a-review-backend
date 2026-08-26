@@ -49,6 +49,32 @@ router.post(
 )
 
 router.post(
+  '/confirm-checkout',
+  authenticate,
+  authorize('business'),
+  [body('businessId').notEmpty()],
+  validate,
+  async (req, res, next) => {
+    try {
+      const subscription = await subscriptionService.confirmCheckout(
+        req.body.businessId,
+        req.user.id,
+      )
+      res.json({
+        success: true,
+        data: {
+          ...subscription,
+          provider: 'square',
+          squareConfigured: squareService.hasCredentials(),
+        },
+      })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
   '/portal',
   authenticate,
   authorize('business'),

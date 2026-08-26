@@ -214,6 +214,66 @@ export const subscriptionService = {
     }
   },
 
+  /**
+   * Called when Square redirects back to ?checkout=success.
+   * Payment-link checkouts often create a *new* Square customer, so webhooks
+   * may not match our stored square_customer_id. Applying pending_plan here
+   * completes the upgrade for the authenticated business owner.
+   */
+  async confirmCheckout(businessId, userId) {
+    await ensureSquareColumns()
+    await assertBusinessOwner(businessId, userId)
+
+    const sub = await query('SELECT * FROM subscriptions WHERE business_id = $1 LIMIT 1', [businessId])
+    const row = sub.rows[0]
+    if (!row) throw new AppError('Subscription not found', 404)
+
+    const pending = row.pending_plan
+    if (!pending || !PAID_SQUARE_PLANS.includes(pending)) {
+      return this.getByBusiness(businessId)
+    }
+
+    const periodEnd = row.current_period_end || addMonths(new Date(), 1)
+    await query(
+      `UPDATE subscriptions
+       SET plan = $1,
+           status = 'active',
+           pending_plan = NULL,
+           current_period_end = COALESCE(current_period_end, $2),
+           updated_at = NOW()
+       WHERE business_id = $3`,
+      [pending, periodEnd, businessId],
+    )
+
+    let amountCents = 0
+    let currency = 'GBP'
+    try {
+      const planRow = await billingPlansService.getByKey(pending)
+      amountCents = Number(planRow?.amountCents || 0)
+      currency = planRow?.currency || 'GBP'
+    } catch {
+      // catalog lookup is best-effort for CRM payment history
+    }
+
+    await this.recordSuccessfulCharge({
+      businessId,
+      paymentId: `portal-confirm-${businessId}-${pending}-${Date.now()}`,
+      amount: amountCents,
+      currency,
+      plan: pending,
+      nextBillingDate: periodEnd,
+    })
+
+    const email = await ownerEmailForBusiness(businessId)
+    if (email) {
+      await emailService.sendSubscriptionConfirmation(email, pending, {
+        nextBillingDate: periodEnd,
+      })
+    }
+
+    return this.getByBusiness(businessId)
+  },
+
   async createPortal(businessId, userId) {
     await ensureSquareColumns()
     await assertBusinessOwner(businessId, userId)
@@ -392,13 +452,25 @@ export const subscriptionService = {
     const paymentStatus = String(payment.status || '').toUpperCase()
     const note = safeJsonParse(payment.note)
     const customerId = payment.customer_id || payment.customerId || note?.customerId
+    const businessId = note?.businessId || null
     const amount = Number(payment.amount_money?.amount || payment.amountMoney?.amount || 0)
     const currency = payment.amount_money?.currency || payment.amountMoney?.currency || 'GBP'
     const paymentId = payment.id
-    if (!customerId || !paymentId) return
+    if (!paymentId) return
 
-    const row = await findSubscriptionRow({ customerId })
+    // Prefer businessId from payment note — Square checkout often creates a
+    // new customer that does not match our stored square_customer_id.
+    const row = await findSubscriptionRow({ customerId, businessId })
     if (!row) return
+
+    if (customerId && customerId !== row.square_customer_id) {
+      await query(
+        `UPDATE subscriptions
+         SET square_customer_id = $1, updated_at = NOW()
+         WHERE business_id = $2`,
+        [customerId, row.business_id],
+      )
+    }
 
     if (paymentStatus === 'FAILED' || paymentStatus === 'CANCELED') {
       await query(
@@ -410,7 +482,7 @@ export const subscriptionService = {
          VALUES ($1, $2, $3, $4, $5, 'failed')
          ON CONFLICT (square_payment_id) DO NOTHING
          RETURNING id`,
-        [row.business_id, paymentId, amount, currency, note?.plan || row.plan],
+        [row.business_id, paymentId, amount, currency, note?.plan || row.pending_plan || row.plan],
       )
       const email = await ownerEmailForBusiness(row.business_id)
       if (failed.rows[0] && email && row.plan !== 'free') {
@@ -421,13 +493,22 @@ export const subscriptionService = {
 
     if (paymentStatus !== 'COMPLETED') return
 
-    const plan = note?.plan && PAID_SQUARE_PLANS.includes(note.plan) ? note.plan : row.plan
+    const plan =
+      note?.plan && PAID_SQUARE_PLANS.includes(note.plan)
+        ? note.plan
+        : row.pending_plan && PAID_SQUARE_PLANS.includes(row.pending_plan)
+          ? row.pending_plan
+          : row.plan
     const nextEnd = extractPeriodEnd(payment) || addMonths(row.current_period_end || new Date(), 1)
 
     if (plan && PAID_SQUARE_PLANS.includes(plan)) {
       await query(
         `UPDATE subscriptions
-         SET plan = $1, status = 'active', current_period_end = $2, updated_at = NOW()
+         SET plan = $1,
+             status = 'active',
+             pending_plan = NULL,
+             current_period_end = $2,
+             updated_at = NOW()
          WHERE business_id = $3`,
         [plan, nextEnd, row.business_id],
       )

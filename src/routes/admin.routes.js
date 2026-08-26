@@ -389,6 +389,15 @@ router.get('/payments', async (_req, res, next) => {
   }
 })
 
+router.get('/businesses/:id/payments', async (req, res, next) => {
+  try {
+    const payments = await adminService.getBusinessPayments(req.params.id)
+    res.json({ success: true, data: payments })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/settings', async (_req, res, next) => {
   try {
     const settings = await adminService.getSettings()
