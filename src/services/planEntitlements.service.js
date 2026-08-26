@@ -11,12 +11,18 @@ import {
 
 export async function ensureAssignablePlans() {
   await query(`
+    UPDATE subscriptions SET plan = 'premium' WHERE plan = 'enterprise';
+  `)
+  await query(`
+    UPDATE subscriptions SET pending_plan = 'premium' WHERE pending_plan = 'enterprise';
+  `)
+  await query(`
     DO $$
     BEGIN
       ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS subscriptions_plan_check;
       ALTER TABLE subscriptions
         ADD CONSTRAINT subscriptions_plan_check
-        CHECK (plan IN ('free', 'starter', 'plus', 'premium', 'enterprise'));
+        CHECK (plan IN ('free', 'starter', 'plus', 'premium'));
     EXCEPTION WHEN duplicate_object THEN
       NULL;
     END $$;

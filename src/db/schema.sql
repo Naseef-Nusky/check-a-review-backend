@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   business_id UUID NOT NULL UNIQUE REFERENCES businesses(id) ON DELETE CASCADE,
   plan VARCHAR(20) NOT NULL DEFAULT 'free'
-    CHECK (plan IN ('free', 'starter', 'plus', 'premium', 'enterprise')),
+    CHECK (plan IN ('free', 'starter', 'plus', 'premium')),
   square_customer_id VARCHAR(255),
   square_subscription_id VARCHAR(255),
   pending_plan VARCHAR(20),

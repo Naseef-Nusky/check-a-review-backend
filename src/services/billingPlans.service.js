@@ -4,7 +4,7 @@ import { AppError } from '../utils/helpers.js'
 import { squareService } from './square.service.js'
 import { CATALOG_VERSION, PAID_SQUARE_PLANS, PLAN_CATALOG, formatLimit, getPlan, isUnlimited } from '../config/planCatalog.js'
 
-const BILLABLE_KEYS = ['starter', 'plus', 'premium', 'enterprise']
+const BILLABLE_KEYS = ['starter', 'plus', 'premium']
 
 let tableReady = false
 
@@ -126,6 +126,8 @@ async function ensureBillingPlansTable() {
     )
   }
 
+  await query(`DELETE FROM billing_plans WHERE plan_key = 'enterprise'`)
+
   tableReady = true
 }
 
@@ -211,7 +213,7 @@ export const billingPlansService = {
     await ensureBillingPlansTable()
     const result = await query(
       `SELECT * FROM billing_plans
-       WHERE plan_key IN ('starter', 'plus', 'premium', 'enterprise')
+       WHERE plan_key IN ('starter', 'plus', 'premium')
        ORDER BY CASE plan_key
          WHEN 'starter' THEN 0
          WHEN 'plus' THEN 1
@@ -225,7 +227,7 @@ export const billingPlansService = {
   async getByKey(planKey) {
     await ensureBillingPlansTable()
     if (!BILLABLE_KEYS.includes(planKey)) {
-      throw new AppError('Plan key must be starter, plus, premium, or enterprise', 400)
+      throw new AppError('Plan key must be starter, plus, or premium', 400)
     }
     const result = await query('SELECT * FROM billing_plans WHERE plan_key = $1', [planKey])
     if (!result.rows[0]) throw new AppError('Billing plan not found', 404)
@@ -252,7 +254,7 @@ export const billingPlansService = {
       cadence === 'YEARLY' ? Math.round(monthlyAmountCents * 12) : Math.round(monthlyAmountCents)
 
     if (!name) throw new AppError('Plan name is required', 400)
-    if (planKey !== 'enterprise' && (!Number.isFinite(monthlyAmountCents) || monthlyAmountCents < 0)) {
+    if (!Number.isFinite(monthlyAmountCents) || monthlyAmountCents < 0) {
       throw new AppError('Monthly price must be a non-negative dollar amount', 400)
     }
     if (!['MONTHLY', 'YEARLY', 'WEEKLY'].includes(cadence)) {
@@ -289,11 +291,11 @@ export const billingPlansService = {
        RETURNING *`,
       [
         name,
-        planKey === 'enterprise' ? 0 : amountCents,
-        planKey === 'enterprise' ? 0 : monthlyAmountCents,
+        amountCents,
+        monthlyAmountCents,
         currency,
         cadence,
-        planKey === 'enterprise' ? false : active,
+        active,
         parseLimitField(data.invitationsPerMonth, existing.invitationsPerMonth),
         parseLimitField(data.widgets, existing.widgets),
         parseLimitField(data.users, existing.users),
@@ -309,7 +311,7 @@ export const billingPlansService = {
   async syncToSquare(planKey) {
     await ensureBillingPlansTable()
     if (!PAID_SQUARE_PLANS.includes(planKey)) {
-      throw new AppError('Enterprise is sales-led and is not synced to Square', 400)
+      throw new AppError('Only Starter, Plus, and Premium can be synced to Square', 400)
     }
     if (!squareService.hasCredentials()) {
       throw new AppError('Square access token / location is not configured in .env', 503)
@@ -345,7 +347,6 @@ export const billingPlansService = {
     for (const key of PAID_SQUARE_PLANS) {
       out.push(await this.syncToSquare(key))
     }
-    const enterprise = await this.getByKey('enterprise')
-    return [...out, enterprise]
+    return out
   },
 }

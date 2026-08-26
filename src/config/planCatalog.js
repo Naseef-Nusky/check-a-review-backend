@@ -1,9 +1,9 @@
-export const CATALOG_VERSION = 5
+export const CATALOG_VERSION = 6
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
-export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium', 'enterprise']
+export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium']
 export const PAID_SQUARE_PLANS = ['starter', 'plus', 'premium']
-export const MARKETING_PLAN_ORDER = ['starter', 'plus', 'premium', 'enterprise']
+export const MARKETING_PLAN_ORDER = ['starter', 'plus', 'premium']
 
 export function isUnlimited(value) {
   return !Number.isFinite(Number(value))
@@ -184,36 +184,6 @@ export const PLAN_CATALOG = {
       'More dashboards with richer data, insights, and trends',
     ],
   }),
-  enterprise: plan({
-    key: 'enterprise',
-    name: 'Enterprise',
-    tagline: 'Drive business strategy with insights',
-    monthlyDollars: 0,
-    checkout: 'sales',
-    invitationsPerMonth: UNLIMITED,
-    widgets: 22,
-    users: 1000,
-    domains: UNLIMITED,
-    integrations: UNLIMITED,
-    brandMatch: true,
-    dedicatedCsm: true,
-    advancedAnalytics: true,
-    optimizedInvites: true,
-    ctaLabel: 'Book demo',
-    description: 'Contact sales for a pricing estimate. Built for complex, multi-brand programs.',
-    features: [
-      'Unlimited review invitations',
-      '22 widgets to showcase TrustScore and testimonials',
-      '1,000 users',
-      'Unlimited domains',
-      'All integrations',
-      'Power your ads with Check A Review marketing assets',
-      'Match your public profile to your brand',
-      'Dedicated Customer Success Manager',
-      'More dashboards with richer data, insights, and trends',
-      'Tools for optimized invitations and actionable insights',
-    ],
-  }),
 }
 
 export const WIDGET_CATALOG = [
@@ -238,7 +208,7 @@ export const WIDGET_CATALOG = [
   { id: 'quote-spotlight', name: 'Quote spotlight', description: 'Single large testimonial with score.', layout: 'classic', height: 280 },
   { id: 'premium-carousel', name: 'Premium carousel', description: 'Rich TrustScore and testimonial layout.', layout: 'classic', height: 420 },
   { id: 'insights-teaser', name: 'Insights teaser', description: 'Score plus trend-style summary for dashboards.', layout: 'classic', height: 360 },
-  { id: 'enterprise-wall', name: 'Enterprise review wall', description: 'Largest testimonial wall for brand sites.', layout: 'classic', height: 560 },
+  { id: 'enterprise-wall', name: 'Large review wall', description: 'Largest testimonial wall for brand sites.', layout: 'classic', height: 560 },
 ]
 
 export const INTEGRATION_CATALOG = [
@@ -327,7 +297,7 @@ export function buildPricingContentFromCatalog() {
     steps: [
       {
         title: 'Pick your plan',
-        description: 'Start with Starter, grow into Plus, or talk to us about Premium and Enterprise.',
+        description: 'Start with Starter, grow into Plus, or upgrade to Premium for richer insights.',
       },
       {
         title: 'Collect more reviews',
@@ -347,29 +317,28 @@ export function buildPricingContentFromCatalog() {
       {
         title: 'Collect reviews',
         rows: [
-          { label: 'Users', values: { starter: value('starter', 'users'), plus: value('plus', 'users'), premium: value('premium', 'users'), enterprise: value('enterprise', 'users') } },
-          { label: 'Domains', values: { starter: value('starter', 'domains'), plus: value('plus', 'domains'), premium: value('premium', 'domains'), enterprise: value('enterprise', 'domains') } },
-          { label: 'Monthly review invitations', values: { starter: value('starter', 'invitationsPerMonth'), plus: value('plus', 'invitationsPerMonth'), premium: value('premium', 'invitationsPerMonth'), enterprise: value('enterprise', 'invitationsPerMonth') } },
-          { label: 'Widgets', values: { starter: value('starter', 'widgets'), plus: value('plus', 'widgets'), premium: value('premium', 'widgets'), enterprise: value('enterprise', 'widgets') } },
-          { label: 'Integrations', values: { starter: '15', plus: 'All', premium: 'All', enterprise: 'All' } },
+          { label: 'Users', values: { starter: value('starter', 'users'), plus: value('plus', 'users'), premium: value('premium', 'users') } },
+          { label: 'Domains', values: { starter: value('starter', 'domains'), plus: value('plus', 'domains'), premium: value('premium', 'domains') } },
+          { label: 'Monthly review invitations', values: { starter: value('starter', 'invitationsPerMonth'), plus: value('plus', 'invitationsPerMonth'), premium: value('premium', 'invitationsPerMonth') } },
+          { label: 'Widgets', values: { starter: value('starter', 'widgets'), plus: value('plus', 'widgets'), premium: value('premium', 'widgets') } },
+          { label: 'Integrations', values: { starter: '15', plus: 'All', premium: 'All' } },
         ],
       },
       {
         title: 'Convert trust',
         rows: [
-          { label: 'Public business profile', values: { starter: true, plus: true, premium: true, enterprise: true } },
-          { label: 'Marketing assets', values: { starter: true, plus: true, premium: true, enterprise: true } },
-          { label: 'Match profile to your brand', values: { starter: false, plus: true, premium: true, enterprise: true } },
+          { label: 'Public business profile', values: { starter: true, plus: true, premium: true } },
+          { label: 'Marketing assets', values: { starter: true, plus: true, premium: true } },
+          { label: 'Match profile to your brand', values: { starter: false, plus: true, premium: true } },
         ],
       },
       {
         title: 'Insights and support',
         rows: [
-          { label: 'Basic analytics', values: { starter: true, plus: true, premium: true, enterprise: true } },
-          { label: 'Richer dashboards and trends', values: { starter: false, plus: false, premium: true, enterprise: true } },
-          { label: 'Dedicated Customer Success Manager', values: { starter: false, plus: false, premium: true, enterprise: true } },
-          { label: 'Optimized invitations and insights', values: { starter: false, plus: false, premium: false, enterprise: true } },
-          { label: '14-day free trial', values: { starter: false, plus: true, premium: false, enterprise: false } },
+          { label: 'Basic analytics', values: { starter: true, plus: true, premium: true } },
+          { label: 'Richer dashboards and trends', values: { starter: false, plus: false, premium: true } },
+          { label: 'Dedicated Customer Success Manager', values: { starter: false, plus: false, premium: true } },
+          { label: '14-day free trial', values: { starter: false, plus: true, premium: false } },
         ],
       },
     ],
@@ -383,8 +352,8 @@ export function buildPricingContentFromCatalog() {
         answer: 'Yes. Plus includes a 14-day free trial for new customers before monthly billing begins.',
       },
       {
-        question: 'How do I get Premium or Enterprise?',
-        answer: 'Premium can start with a demo. Enterprise is quoted by sales so we can match domains, seats, and invitation volume.',
+        question: 'How do I get Premium?',
+        answer: 'Choose Premium from the business portal subscription page and complete Square checkout.',
       },
       {
         question: 'Can I change plans later?',

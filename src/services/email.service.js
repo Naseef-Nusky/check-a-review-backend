@@ -368,7 +368,7 @@ async function sendTemplatedEmail({ to, subject, template }) {
 
 function displayBusinessName(name) {
   const cleaned = String(name || '')
-    .replace(/^(free|starter|plus|premium|enterprise)\s+plan\s+/i, '')
+    .replace(/^(free|starter|plus|premium)\s+plan\s+/i, '')
     .trim()
   return cleaned || String(name || 'this business')
 }

@@ -142,23 +142,6 @@ async function seed() {
       reviews: 96,
       trustScore: 95,
     },
-    {
-      name: 'Atlas Group',
-      category: 'Business Services',
-      description: 'Dummy business on the Enterprise plan for full feature and unlimited-plan testing.',
-      plan: 'enterprise',
-      email: 'enterprise-plan@example.com',
-      website: 'https://enterprise-plan-group.example.com',
-      domains: [
-        'enterprise-plan-group.example.com',
-        'uk.enterprise-plan-group.example.com',
-        'eu.enterprise-plan-group.example.com',
-        'global.enterprise-plan-group.example.com',
-      ],
-      rating: 4.9,
-      reviews: 180,
-      trustScore: 98,
-    },
   ]
 
   for (const biz of sampleBusinesses) {
