@@ -576,23 +576,48 @@ export const authService = {
 
   async changePassword(userId, currentPassword, newPassword) {
     assertStrongPassword(newPassword)
-    const result = await query('SELECT password_hash FROM users WHERE id = $1', [userId])
+    const result = await query('SELECT * FROM users WHERE id = $1', [userId])
     if (result.rows.length === 0) throw new AppError('User not found', 404)
 
-    const { password_hash: passwordHash } = result.rows[0]
-    if (passwordHash) {
+    const user = result.rows[0]
+    const hadPassword = Boolean(user.password_hash)
+
+    if (hadPassword) {
       if (!currentPassword) throw new AppError('Current password is required', 400)
-      const valid = await bcrypt.compare(currentPassword, passwordHash)
+      const valid = await bcrypt.compare(currentPassword, user.password_hash)
       if (!valid) throw new AppError('Current password is incorrect', 401)
     }
 
     const nextHash = await bcrypt.hash(newPassword, 12)
-    await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [
-      nextHash,
-      userId,
-    ])
-    await bumpTokenVersion(userId)
-    return { message: 'Password updated successfully' }
+    const updated = await query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [nextHash, userId],
+    )
+
+    // Invalidate other sessions when changing an existing password.
+    // First-time add (Google) keeps the current session by issuing a new token.
+    if (hadPassword) {
+      await bumpTokenVersion(userId)
+    }
+
+    const nextUser = updated.rows[0]
+    if (hadPassword) {
+      const versioned = await query('SELECT * FROM users WHERE id = $1', [userId])
+      const fresh = versioned.rows[0]
+      return {
+        message: 'Password updated successfully',
+        user: omitPassword(fresh),
+        token: signToken(fresh),
+        first_password: false,
+      }
+    }
+
+    return {
+      message: 'Password added successfully',
+      user: omitPassword(nextUser),
+      token: signToken(nextUser),
+      first_password: true,
+    }
   },
 
   async getProfile(userId) {
