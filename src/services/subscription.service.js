@@ -215,6 +215,116 @@ export const subscriptionService = {
   },
 
   /**
+   * Charge via Square Web Payments card token (in-app checkout).
+   * Prefer this over Payment Links in sandbox — Payment Links only open the testing panel.
+   */
+  async payWithCard(businessId, userId, plan, sourceId, verificationToken) {
+    await ensureSquareColumns()
+    if (!PAID_SQUARE_PLANS.includes(plan)) {
+      throw new AppError('This plan is quoted by sales. Use Book demo instead of checkout.', 400)
+    }
+    if (!squareService.hasCredentials()) {
+      throw new AppError('Square billing is not configured yet. Add Square sandbox keys to .env.', 503)
+    }
+    const clientConfig = squareService.getClientConfig()
+    if (!clientConfig.cardPaymentsEnabled) {
+      throw new AppError(
+        'Add SQUARE_APPLICATION_ID to the backend .env (from Square Developer Dashboard → your app → Application ID).',
+        503,
+      )
+    }
+    if (!sourceId) throw new AppError('Card token is required', 400)
+
+    const planRow = await billingPlansService.getByKey(plan)
+    if (!planRow.active) throw new AppError(`Plan "${plan}" is inactive`, 400)
+    if (!planRow.squareVariationId && !planRow.squarePlanId) {
+      throw new AppError(
+        `Plan "${plan}" is not synced to Square yet. Open CRM → Billing plans and click Sync.`,
+        400,
+      )
+    }
+
+    await assertBusinessOwner(businessId, userId)
+    const business = await query(
+      'SELECT b.*, u.email, u.name FROM businesses b JOIN users u ON u.id = b.user_id WHERE b.id = $1',
+      [businessId],
+    )
+    if (business.rows.length === 0) throw new AppError('Business not found', 404)
+
+    const sub = await query('SELECT * FROM subscriptions WHERE business_id = $1', [businessId])
+    let customerId = sub.rows[0]?.square_customer_id || null
+    const previousSubscriptionId = sub.rows[0]?.square_subscription_id || null
+
+    if (!customerId) {
+      const customer = await squareService.createCustomer(business.rows[0].email, business.rows[0].name)
+      customerId = customer.id
+      await query(
+        'UPDATE subscriptions SET square_customer_id = $1, updated_at = NOW() WHERE business_id = $2',
+        [customerId, businessId],
+      )
+    }
+
+    let amountCents = planRow.amountCents
+    if (planRow.perDomain) {
+      const domains = await query(
+        `SELECT COUNT(*)::int AS count FROM business_domains WHERE business_id = $1 AND status = 'active'`,
+        [businessId],
+      )
+      const domainCount = Math.max(1, domains.rows[0]?.count || 1)
+      const maxDomains = Number.isFinite(planRow.domains) ? planRow.domains : domainCount
+      amountCents = planRow.amountCents * Math.min(domainCount, maxDomains)
+    }
+
+    const created = await squareService.createCardSubscription({
+      customerId,
+      sourceId,
+      verificationToken,
+      planVariationId: planRow.squareVariationId || planRow.squarePlanId,
+      businessId,
+      plan,
+    })
+
+    if (previousSubscriptionId && previousSubscriptionId !== created.subscriptionId) {
+      try {
+        await squareService.cancelSubscription(previousSubscriptionId)
+      } catch (err) {
+        console.error('Failed to cancel previous Square subscription:', err.message)
+      }
+    }
+
+    const trialDays = Number(planRow.trialDays || planRow.trial_days || 0)
+    const status = trialDays > 0 ? 'trialing' : 'active'
+    const periodEnd = addMonths(addDays(new Date(), trialDays), 1)
+
+    await query(
+      `UPDATE subscriptions
+       SET plan = $1,
+           status = $2,
+           pending_plan = NULL,
+           square_customer_id = $3,
+           square_subscription_id = $4,
+           current_period_end = $5,
+           updated_at = NOW()
+       WHERE business_id = $6`,
+      [plan, status, customerId, created.subscriptionId, periodEnd, businessId],
+    )
+
+    const chargeAmount = trialDays > 0 ? 0 : amountCents
+    if (chargeAmount > 0 || trialDays > 0) {
+      await this.recordSuccessfulCharge({
+        businessId,
+        paymentId: `card-sub-${created.subscriptionId}`,
+        amount: chargeAmount,
+        currency: planRow.currency || 'GBP',
+        plan,
+        nextBillingDate: periodEnd,
+      })
+    }
+
+    return this.getByBusiness(businessId)
+  },
+
+  /**
    * Called when Square redirects back to ?checkout=success.
    * Payment-link checkouts often create a *new* Square customer, so webhooks
    * may not match our stored square_customer_id. Applying pending_plan here
@@ -300,6 +410,66 @@ export const subscriptionService = {
       [businessId],
     )
     return result.rows[0]
+  },
+
+  async updatePaymentMethod(businessId, userId, sourceId, verificationToken) {
+    await ensureSquareColumns()
+    await assertBusinessOwner(businessId, userId)
+
+    if (!squareService.hasCredentials()) {
+      throw new AppError('Square billing is not configured yet.', 503)
+    }
+    if (!squareService.getClientConfig().cardPaymentsEnabled) {
+      throw new AppError(
+        'Add SQUARE_APPLICATION_ID to the backend .env (from Square Developer Dashboard → your app → Application ID).',
+        503,
+      )
+    }
+    if (!sourceId) throw new AppError('Card token is required', 400)
+
+    const sub = await query('SELECT * FROM subscriptions WHERE business_id = $1 LIMIT 1', [businessId])
+    const row = sub.rows[0]
+    if (!row) throw new AppError('Subscription not found', 404)
+    if (!row.square_subscription_id) {
+      throw new AppError('No active paid subscription to update. Choose a plan and pay first.', 400)
+    }
+
+    let customerId = row.square_customer_id
+    if (!customerId) {
+      const business = await query(
+        'SELECT b.*, u.email, u.name FROM businesses b JOIN users u ON u.id = b.user_id WHERE b.id = $1',
+        [businessId],
+      )
+      if (business.rows.length === 0) throw new AppError('Business not found', 404)
+      const customer = await squareService.createCustomer(business.rows[0].email, business.rows[0].name)
+      customerId = customer.id
+      await query(
+        'UPDATE subscriptions SET square_customer_id = $1, updated_at = NOW() WHERE business_id = $2',
+        [customerId, businessId],
+      )
+    }
+
+    const card = await squareService.createCard({
+      customerId,
+      sourceId,
+      verificationToken,
+      businessId,
+      plan: row.plan,
+    })
+
+    await squareService.updateSubscriptionCard(row.square_subscription_id, card.id)
+
+    // If renewal previously failed, clear past_due after card update so user can keep features.
+    if (row.status === 'past_due') {
+      await query(
+        `UPDATE subscriptions
+         SET status = 'active', updated_at = NOW()
+         WHERE business_id = $1`,
+        [businessId],
+      )
+    }
+
+    return this.getByBusiness(businessId)
   },
 
   async handleWebhook(event) {

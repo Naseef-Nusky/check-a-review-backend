@@ -20,6 +20,7 @@ export const env = {
   // Square billing (sandbox by default)
   SQUARE_ENVIRONMENT: process.env.SQUARE_ENVIRONMENT || 'sandbox',
   SQUARE_ACCESS_TOKEN: process.env.SQUARE_ACCESS_TOKEN || '',
+  SQUARE_APPLICATION_ID: process.env.SQUARE_APPLICATION_ID || '',
   SQUARE_LOCATION_ID: process.env.SQUARE_LOCATION_ID || '',
   SQUARE_WEBHOOK_SIGNATURE_KEY: process.env.SQUARE_WEBHOOK_SIGNATURE_KEY || '',
   SQUARE_WEBHOOK_NOTIFICATION_URL:

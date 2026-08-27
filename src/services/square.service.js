@@ -100,6 +100,18 @@ export const squareService = {
     return this.hasCredentials()
   },
 
+  getClientConfig() {
+    const isSandbox = String(env.SQUARE_ENVIRONMENT || 'sandbox').toLowerCase() !== 'production'
+    return {
+      applicationId: env.SQUARE_APPLICATION_ID || '',
+      locationId: env.SQUARE_LOCATION_ID || '',
+      environment: isSandbox ? 'sandbox' : 'production',
+      cardPaymentsEnabled: Boolean(
+        this.hasCredentials() && env.SQUARE_APPLICATION_ID && !/your_square|change-me|^$/i.test(env.SQUARE_APPLICATION_ID),
+      ),
+    }
+  },
+
   async createCustomer(email, name) {
     assertCredentials()
     const response = await client.customers.create({
@@ -271,6 +283,113 @@ export const squareService = {
       url,
       sandboxMode: isSandbox,
     }
+  },
+
+  /**
+   * Save a card from Web Payments SDK token, then start a Square subscription.
+   * This avoids Payment Link sandbox testing panel and shows a real card form.
+   */
+  async createCardSubscription({
+    customerId,
+    sourceId,
+    verificationToken,
+    planVariationId,
+    businessId,
+    plan,
+  }) {
+    assertCredentials()
+    if (!planVariationId) {
+      throw new AppError('Square plan variation is missing. Sync billing plans to Square first.', 400)
+    }
+    if (!sourceId) throw new AppError('Card payment token is required', 400)
+
+    let card
+    try {
+      const cardResponse = await client.cards.create({
+        idempotencyKey: randomUUID(),
+        sourceId,
+        ...(verificationToken ? { verificationToken } : {}),
+        card: {
+          customerId,
+          referenceId: `${businessId}:${plan}`,
+        },
+      })
+      card = cardResponse.card
+    } catch (err) {
+      wrapSquareError(err, 'Failed to save card with Square')
+    }
+
+    if (!card?.id) throw new AppError('Failed to save card with Square', 502)
+
+    let subscription
+    try {
+      const subResponse = await client.subscriptions.create({
+        idempotencyKey: randomUUID(),
+        locationId: env.SQUARE_LOCATION_ID,
+        customerId,
+        planVariationId,
+        cardId: card.id,
+        source: { name: 'Check A Review Business Portal' },
+      })
+      subscription = subResponse.subscription
+    } catch (err) {
+      wrapSquareError(err, 'Failed to create Square subscription')
+    }
+
+    if (!subscription?.id) throw new AppError('Failed to create Square subscription', 502)
+
+    return {
+      cardId: card.id,
+      subscriptionId: subscription.id,
+      subscription,
+    }
+  },
+
+  async createCard({ customerId, sourceId, verificationToken, businessId, plan }) {
+    assertCredentials()
+    if (!sourceId) throw new AppError('Card payment token is required', 400)
+    if (!customerId) throw new AppError('Square customer is required', 400)
+
+    let card
+    try {
+      const cardResponse = await client.cards.create({
+        idempotencyKey: randomUUID(),
+        sourceId,
+        ...(verificationToken ? { verificationToken } : {}),
+        card: {
+          customerId,
+          referenceId: plan ? `${businessId}:${plan}` : `${businessId}:payment-method`,
+        },
+      })
+      card = cardResponse.card
+    } catch (err) {
+      wrapSquareError(err, 'Failed to save card with Square')
+    }
+
+    if (!card?.id) throw new AppError('Failed to save card with Square', 502)
+    return card
+  },
+
+  async updateSubscriptionCard(subscriptionId, cardId) {
+    assertCredentials()
+    if (!subscriptionId) throw new AppError('No active Square subscription', 400)
+    if (!cardId) throw new AppError('Card is required', 400)
+
+    let subscription
+    try {
+      const response = await client.subscriptions.update({
+        subscriptionId,
+        subscription: {
+          cardId,
+        },
+      })
+      subscription = response.subscription
+    } catch (err) {
+      wrapSquareError(err, 'Failed to update payment method on Square subscription')
+    }
+
+    if (!subscription?.id) throw new AppError('Failed to update payment method', 502)
+    return subscription
   },
 
   async getSubscription(subscriptionId) {

@@ -7,17 +7,27 @@ import { squareService } from '../services/square.service.js'
 
 const router = Router()
 
+router.get('/square-config', authenticate, authorize('business'), async (_req, res, next) => {
+  try {
+    res.json({ success: true, data: squareService.getClientConfig() })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/:businessId', authenticate, authorize('business'), async (req, res, next) => {
   try {
     const { assertBusinessAccess } = await import('../services/businessAccess.service.js')
     await assertBusinessAccess(req.params.businessId, req.user.id)
     const subscription = await subscriptionService.getByBusiness(req.params.businessId)
+    const squareConfig = squareService.getClientConfig()
     res.json({
       success: true,
       data: {
         ...subscription,
         provider: 'square',
         squareConfigured: squareService.hasCredentials(),
+        cardPaymentsEnabled: squareConfig.cardPaymentsEnabled,
       },
     })
   } catch (err) {
@@ -42,6 +52,42 @@ router.post(
         req.body.plan,
       )
       res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/pay-with-card',
+  authenticate,
+  authorize('business'),
+  [
+    body('businessId').notEmpty(),
+    body('plan').isIn(['starter', 'plus', 'premium']).withMessage('Plan must be starter, plus, or premium'),
+    body('sourceId').notEmpty().withMessage('Card token is required'),
+    body('verificationToken').optional({ values: 'falsy' }).isString(),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const subscription = await subscriptionService.payWithCard(
+        req.body.businessId,
+        req.user.id,
+        req.body.plan,
+        req.body.sourceId,
+        req.body.verificationToken,
+      )
+      const squareConfig = squareService.getClientConfig()
+      res.json({
+        success: true,
+        data: {
+          ...subscription,
+          provider: 'square',
+          squareConfigured: squareService.hasCredentials(),
+          cardPaymentsEnabled: squareConfig.cardPaymentsEnabled,
+        },
+      })
     } catch (err) {
       next(err)
     }
@@ -84,6 +130,40 @@ router.post(
     try {
       const result = await subscriptionService.createPortal(req.body.businessId, req.user.id)
       res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/update-payment-method',
+  authenticate,
+  authorize('business'),
+  [
+    body('businessId').notEmpty(),
+    body('sourceId').notEmpty().withMessage('Card token is required'),
+    body('verificationToken').optional({ values: 'falsy' }).isString(),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const subscription = await subscriptionService.updatePaymentMethod(
+        req.body.businessId,
+        req.user.id,
+        req.body.sourceId,
+        req.body.verificationToken,
+      )
+      const squareConfig = squareService.getClientConfig()
+      res.json({
+        success: true,
+        data: {
+          ...subscription,
+          provider: 'square',
+          squareConfigured: squareService.hasCredentials(),
+          cardPaymentsEnabled: squareConfig.cardPaymentsEnabled,
+        },
+      })
     } catch (err) {
       next(err)
     }
