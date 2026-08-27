@@ -160,6 +160,29 @@ router.put(
   },
 )
 
+router.put(
+  '/me/password',
+  authenticate,
+  authLimiter,
+  [
+    body('currentPassword').optional().isString(),
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const result = await authService.changePassword(
+        req.user.id,
+        req.body.currentPassword,
+        req.body.password,
+      )
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.post(
   '/me/avatar',
   authenticate,

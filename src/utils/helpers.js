@@ -30,6 +30,7 @@ export function publicUser(user) {
     bio: user.bio ?? null,
     avatar_url: user.avatar_url ?? null,
     email_verified: Boolean(user.email_verified),
+    has_password: Boolean(user.password_hash),
     created_at: user.created_at,
   }
 }

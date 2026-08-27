@@ -574,6 +574,27 @@ export const authService = {
     return { message: 'Password reset successfully' }
   },
 
+  async changePassword(userId, currentPassword, newPassword) {
+    assertStrongPassword(newPassword)
+    const result = await query('SELECT password_hash FROM users WHERE id = $1', [userId])
+    if (result.rows.length === 0) throw new AppError('User not found', 404)
+
+    const { password_hash: passwordHash } = result.rows[0]
+    if (passwordHash) {
+      if (!currentPassword) throw new AppError('Current password is required', 400)
+      const valid = await bcrypt.compare(currentPassword, passwordHash)
+      if (!valid) throw new AppError('Current password is incorrect', 401)
+    }
+
+    const nextHash = await bcrypt.hash(newPassword, 12)
+    await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [
+      nextHash,
+      userId,
+    ])
+    await bumpTokenVersion(userId)
+    return { message: 'Password updated successfully' }
+  },
+
   async getProfile(userId) {
     await readyGoogleColumns()
     const result = await query('SELECT * FROM users WHERE id = $1', [userId])
