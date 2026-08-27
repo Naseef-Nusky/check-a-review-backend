@@ -108,6 +108,7 @@ export const subscriptionService = {
     const result = await query('SELECT * FROM subscriptions WHERE business_id = $1', [businessId])
     const row = result.rows[0] || { plan: 'free', status: 'active' }
 
+    let paymentMethod = null
     if (row.square_subscription_id && squareService.hasCredentials()) {
       try {
         const remote = await squareService.getSubscription(row.square_subscription_id)
@@ -115,6 +116,19 @@ export const subscriptionService = {
         if (periodEnd) {
           await setPeriodEnd(businessId, periodEnd)
           row.current_period_end = periodEnd
+        }
+        const cardId = remote?.cardId || remote?.card_id || null
+        if (cardId) {
+          const card = await squareService.getCard(cardId)
+          if (card) {
+            paymentMethod = {
+              id: card.id,
+              brand: card.cardBrand || card.card_brand || 'CARD',
+              last4: card.last4 || card.last_4 || '••••',
+              expMonth: Number(card.expMonth || card.exp_month || 0) || null,
+              expYear: Number(card.expYear || card.exp_year || 0) || null,
+            }
+          }
         }
       } catch (err) {
         console.error('Could not refresh Square subscription:', err.message)
@@ -125,6 +139,7 @@ export const subscriptionService = {
     const billingPlans = await billingPlansService.list().catch(() => [])
     return {
       ...row,
+      paymentMethod,
       entitlements,
       catalog: billingPlans,
       salesEmail: env.SALES_EMAIL,

@@ -65,6 +65,25 @@ app.use(express.urlencoded({ extended: true }))
 app.use('/uploads', express.static(uploadsRoot))
 app.use('/static', express.static(publicRoot))
 
+// Apple Pay domain verification file (must download as a file, not HTML).
+const applePayAssociationFile = path.join(
+  publicRoot,
+  '.well-known',
+  'apple-developer-merchantid-domain-association',
+)
+function sendApplePayAssociation(_req, res) {
+  res.setHeader('Content-Type', 'application/octet-stream')
+  res.setHeader('Content-Disposition', 'attachment')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.sendFile(applePayAssociationFile, (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).type('text/plain').send('Apple Pay domain association file not found')
+    }
+  })
+}
+app.get('/.well-known/apple-developer-merchantid-domain-association', sendApplePayAssociation)
+app.get('/api/apple-pay/domain-association', sendApplePayAssociation)
+
 app.use('/api', routes)
 
 app.use(notFoundHandler)

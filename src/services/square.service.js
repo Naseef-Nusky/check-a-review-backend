@@ -392,6 +392,29 @@ export const squareService = {
     return subscription
   },
 
+  async registerApplePayDomain(domainName) {
+    assertCredentials()
+    const domain = String(domainName || '').trim().toLowerCase()
+    if (!domain) throw new AppError('Domain is required', 400)
+    try {
+      await client.applePay.registerDomain({ domainName: domain })
+      return { domainName: domain, registered: true }
+    } catch (err) {
+      wrapSquareError(err, 'Failed to register Apple Pay domain with Square')
+    }
+  },
+
+  async getCard(cardId) {
+    assertCredentials()
+    if (!cardId) return null
+    try {
+      const response = await client.cards.get({ cardId })
+      return response.card || null
+    } catch {
+      return null
+    }
+  },
+
   async getSubscription(subscriptionId) {
     assertCredentials()
     if (!subscriptionId) return null

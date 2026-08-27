@@ -15,6 +15,40 @@ router.get('/square-config', authenticate, authorize('business'), async (_req, r
   }
 })
 
+router.post(
+  '/register-apple-pay-domain',
+  authenticate,
+  authorize('business'),
+  [body('domain').optional().isString()],
+  validate,
+  async (req, res, next) => {
+    try {
+      const fallback = (() => {
+        try {
+          return new URL(process.env.BUSINESS_PORTAL_URL || 'http://localhost:5175').hostname
+        } catch {
+          return ''
+        }
+      })()
+      const domain = String(req.body.domain || fallback || '')
+        .replace(/^https?:\/\//i, '')
+        .split('/')[0]
+        .trim()
+      if (!domain || domain === 'localhost' || domain === '127.0.0.1') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Apple Pay requires a public HTTPS domain (not localhost). Set BUSINESS_PORTAL_URL to your live domain, then register it.',
+        })
+      }
+      const result = await squareService.registerApplePayDomain(domain)
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.get('/:businessId', authenticate, authorize('business'), async (req, res, next) => {
   try {
     const { assertBusinessAccess } = await import('../services/businessAccess.service.js')
