@@ -136,6 +136,34 @@ router.post(
   },
 )
 
+// Change / add password (customer settings)
+async function changePasswordHandler(req, res, next) {
+  try {
+    const result = await authService.changePassword(
+      req.user.id,
+      req.body.currentPassword,
+      req.body.password,
+    )
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+}
+
+const changePasswordValidation = [
+  body('currentPassword').optional({ values: 'falsy' }).isString(),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+]
+
+router.post(
+  '/change-password',
+  authenticate,
+  authLimiter,
+  changePasswordValidation,
+  validate,
+  changePasswordHandler,
+)
+
 router.get('/me', authenticate, async (req, res, next) => {
   try {
     const user = await authService.getProfile(req.user.id)
@@ -154,29 +182,6 @@ router.put(
     try {
       const user = await authService.updateProfile(req.user.id, req.body)
       res.json({ success: true, data: user })
-    } catch (err) {
-      next(err)
-    }
-  },
-)
-
-router.put(
-  '/me/password',
-  authenticate,
-  authLimiter,
-  [
-    body('currentPassword').optional().isString(),
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const result = await authService.changePassword(
-        req.user.id,
-        req.body.currentPassword,
-        req.body.password,
-      )
-      res.json({ success: true, data: result })
     } catch (err) {
       next(err)
     }

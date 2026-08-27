@@ -6,7 +6,7 @@ import { isCrmRole, isSuperAdmin } from '../utils/roles.js'
 import { ensureTokenVersionColumn } from '../utils/session.js'
 
 async function loadActiveUser(decoded) {
-  if (!decoded?.id) throw new AppError('Authentication required', 401)
+  if (!decoded?.id) throw new AppError('Authentication required', 401, 'AUTH_REQUIRED')
   await ensureTokenVersionColumn()
   const result = await query(
     `SELECT id, email, name, role, token_version
@@ -14,15 +14,15 @@ async function loadActiveUser(decoded) {
      WHERE id = $1`,
     [decoded.id],
   )
-  if (result.rows.length === 0) throw new AppError('Invalid or expired token', 401)
+  if (result.rows.length === 0) throw new AppError('Invalid or expired token', 401, 'SESSION_EXPIRED')
   const dbUser = result.rows[0]
   if (decoded.role && dbUser.role !== decoded.role) {
-    throw new AppError('Invalid or expired token', 401)
+    throw new AppError('Invalid or expired token', 401, 'SESSION_EXPIRED')
   }
   const tokenVersion = Number(dbUser.token_version || 0)
   const claimedVersion = Number(decoded.tv ?? 0)
   if (tokenVersion !== claimedVersion) {
-    throw new AppError('Invalid or expired token', 401)
+    throw new AppError('Invalid or expired token', 401, 'SESSION_EXPIRED')
   }
   return {
     id: dbUser.id,
@@ -36,7 +36,7 @@ async function loadActiveUser(decoded) {
 export function authenticate(req, _res, next) {
   const header = req.headers.authorization
   if (!header?.startsWith('Bearer ')) {
-    return next(new AppError('Authentication required', 401))
+    return next(new AppError('Authentication required', 401, 'AUTH_REQUIRED'))
   }
 
   const token = header.split(' ')[1]
@@ -47,7 +47,7 @@ export function authenticate(req, _res, next) {
       next()
     } catch (err) {
       if (err instanceof AppError) return next(err)
-      next(new AppError('Invalid or expired token', 401))
+      next(new AppError('Invalid or expired token', 401, 'SESSION_EXPIRED'))
     }
   })()
 }
