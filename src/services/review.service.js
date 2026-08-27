@@ -54,6 +54,177 @@ async function notifyBusinessOwnerAboutReview({
   }
 }
 
+/** Run after HTTP response so AI/email do not block submit. */
+function runInBackground(label, work) {
+  setImmediate(() => {
+    Promise.resolve()
+      .then(work)
+      .catch((err) => {
+        console.error(`[review:${label}]`, err?.message || err)
+      })
+  })
+}
+
+async function finalizeNewReview({
+  reviewId,
+  businessId,
+  businessName,
+  userId,
+  rating,
+  title,
+  content,
+}) {
+  const { analysis, shouldPublish } = await aiModerationService.moderateReview({
+    title,
+    content,
+    rating,
+    businessName,
+    userId,
+    businessId,
+    excludeReviewId: reviewId,
+  })
+
+  const status = shouldPublish ? 'published' : 'pending'
+  await query(
+    `UPDATE reviews SET
+       status = $1,
+       ai_risk_score = $2,
+       ai_flags = $3,
+       ai_analysis = $4,
+       updated_at = NOW()
+     WHERE id = $5`,
+    [
+      status,
+      analysis.riskScore,
+      JSON.stringify(analysis.flags),
+      JSON.stringify({ ...analysis, processingStage: 'completed' }),
+      reviewId,
+    ],
+  )
+
+  const user = await query('SELECT email, name FROM users WHERE id = $1', [userId])
+  const email = user.rows[0]?.email
+  const authorName = user.rows[0]?.name
+
+  const sideEffects = []
+
+  if (email) {
+    sideEffects.push(
+      emailService.sendReviewConfirmation(email, businessName).catch((err) => {
+        console.error('Review confirmation email failed:', err.message)
+      }),
+    )
+  }
+
+  if (status === 'published') {
+    if (email) {
+      sideEffects.push(
+        emailService.sendReviewPublishedEmail(email, businessName).catch((err) => {
+          console.error('Review published email failed:', err.message)
+        }),
+      )
+    }
+    sideEffects.push(businessService.updateBusinessStats(businessId))
+  }
+
+  sideEffects.push(
+    notifyBusinessOwnerAboutReview({
+      businessId,
+      rating,
+      authorName,
+      status,
+      isEdit: false,
+    }),
+  )
+
+  sideEffects.push(
+    notificationService.create(
+      userId,
+      status === 'published' ? 'Review published' : 'Review submitted for processing',
+      status === 'published'
+        ? `Your review for ${businessName} passed our checks and is now live.`
+        : `Your review for ${businessName} is being processed. Most reviews go live within a few minutes to a few hours after automated checks.`,
+      'review_submitted',
+    ),
+  )
+
+  if (status === 'pending') {
+    sideEffects.push(
+      notificationService.notifyCrmStaff(
+        'New review pending approval',
+        `A review for ${businessName} is waiting in the moderation queue.`,
+        'pending_review',
+        '/flagged',
+      ),
+    )
+  }
+
+  await Promise.all(sideEffects)
+}
+
+async function finalizeUpdatedReview({
+  reviewId,
+  businessId,
+  businessName,
+  userId,
+  rating,
+  title,
+  content,
+}) {
+  const { analysis, shouldPublish } = await aiModerationService.moderateReview({
+    title,
+    content,
+    rating,
+    businessName,
+    userId,
+    businessId,
+    excludeReviewId: reviewId,
+  })
+
+  const status = shouldPublish ? 'published' : 'pending'
+  await query(
+    `UPDATE reviews SET
+      status = $1, ai_risk_score = $2, ai_flags = $3, ai_analysis = $4, updated_at = NOW()
+     WHERE id = $5`,
+    [
+      status,
+      analysis.riskScore,
+      JSON.stringify(analysis.flags),
+      JSON.stringify({ ...analysis, processingStage: 'completed' }),
+      reviewId,
+    ],
+  )
+
+  if (status === 'published') {
+    await businessService.updateBusinessStats(businessId)
+  }
+
+  const author = await query('SELECT name, email FROM users WHERE id = $1', [userId])
+
+  await Promise.all([
+    notifyBusinessOwnerAboutReview({
+      businessId,
+      rating,
+      authorName: author.rows[0]?.name,
+      status,
+      isEdit: true,
+    }),
+    status === 'published' && author.rows[0]?.email
+      ? emailService.sendReviewPublishedEmail(author.rows[0].email, businessName).catch((err) => {
+          console.error('Review published email failed:', err.message)
+        })
+      : Promise.resolve(),
+    notificationService.create(
+      userId,
+      status === 'published' ? 'Review updated and published' : 'Review update in processing',
+      status === 'published'
+        ? `Your updated review for ${businessName} passed our checks and is live.`
+        : `Your updated review for ${businessName} is being processed again before it goes live.`,
+      'review_updated',
+    ),
+  ])
+}
+
 export const reviewService = {
   async create({ businessId, userId, rating, title, content, inviteToken }) {
     const business = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
@@ -69,83 +240,39 @@ export const reviewService = {
     )
     if (existing.rows.length > 0) throw new AppError('You have already reviewed this business', 409)
 
-    // Trustpilot-style: always save as pending first, then run processing checks.
+    // Save immediately as pending; AI + emails run in the background.
     const inserted = await query(
       `INSERT INTO reviews (business_id, user_id, rating, title, content, status, ai_risk_score, ai_flags, ai_analysis)
-       VALUES ($1, $2, $3, $4, $5, 'pending', NULL, '[]'::jsonb, '{}'::jsonb) RETURNING *`,
-      [businessId, userId, rating, title, content],
-    )
-    let review = inserted.rows[0]
-
-    const { analysis, shouldPublish } = await aiModerationService.moderateReview({
-      title,
-      content,
-      rating,
-      businessName: business.rows[0].name,
-      userId,
-      businessId,
-      excludeReviewId: review.id,
-    })
-
-    const status = shouldPublish ? 'published' : 'pending'
-    const processed = await query(
-      `UPDATE reviews SET
-         status = $1,
-         ai_risk_score = $2,
-         ai_flags = $3,
-         ai_analysis = $4,
-         updated_at = NOW()
-       WHERE id = $5
-       RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, 'pending', NULL, '[]'::jsonb, $6::jsonb) RETURNING *`,
       [
-        status,
-        analysis.riskScore,
-        JSON.stringify(analysis.flags),
-        JSON.stringify({ ...analysis, processingStage: 'completed' }),
-        review.id,
+        businessId,
+        userId,
+        rating,
+        title,
+        content,
+        JSON.stringify({ processingStage: 'queued' }),
       ],
     )
-    review = processed.rows[0]
+    const review = inserted.rows[0]
 
     if (inviteToken) {
       await this.markInvitationReviewed(inviteToken, userId)
     }
 
-    const user = await query('SELECT email, name FROM users WHERE id = $1', [userId])
-    await emailService.sendReviewConfirmation(user.rows[0].email, business.rows[0].name)
-
-    if (status === 'published') {
-      await emailService.sendReviewPublishedEmail(user.rows[0].email, business.rows[0].name)
-      await businessService.updateBusinessStats(businessId)
-    }
-
-    await notifyBusinessOwnerAboutReview({
-      businessId,
-      rating,
-      authorName: user.rows[0]?.name,
-      status,
-      isEdit: false,
-    })
-
-    await notificationService.create(
-      userId,
-      status === 'published' ? 'Review published' : 'Review submitted for processing',
-      status === 'published'
-        ? `Your review for ${business.rows[0].name} passed our checks and is now live.`
-        : `Your review for ${business.rows[0].name} is being processed. Most reviews go live within a few minutes to a few hours after automated checks.`,
-      'review_submitted',
+    const businessName = business.rows[0].name
+    runInBackground('finalize-create', () =>
+      finalizeNewReview({
+        reviewId: review.id,
+        businessId,
+        businessName,
+        userId,
+        rating,
+        title,
+        content,
+      }),
     )
 
-    if (status === 'pending') {
-      await notificationService.notifyCrmStaff(
-        'New review pending approval',
-        `A review for ${business.rows[0].name} is waiting in the moderation queue.`,
-        'pending_review',
-        '/flagged',
-      )
-    }
-
-    return { review, aiAnalysis: analysis, processing: true }
+    return { review, processing: true }
   },
 
   async update(reviewId, userId, { rating, title, content }) {
@@ -161,71 +288,36 @@ export const reviewService = {
     const nextRating = rating ?? existing.rows[0].rating
     const nextTitle = title ?? existing.rows[0].title
     const nextContent = content ?? existing.rows[0].content
+    const businessId = existing.rows[0].business_id
 
-    // Re-enter processing: unpublish while checks run.
-    await query(
+    // Re-enter processing: unpublish while checks run in the background.
+    const result = await query(
       `UPDATE reviews SET
          rating = COALESCE($1, rating),
          title = COALESCE($2, title),
          content = COALESCE($3, content),
          status = 'pending',
+         ai_analysis = jsonb_set(COALESCE(ai_analysis, '{}'::jsonb), '{processingStage}', '"queued"', true),
          updated_at = NOW()
-       WHERE id = $4`,
+       WHERE id = $4
+       RETURNING *`,
       [rating, title, content, reviewId],
     )
-    await businessService.updateBusinessStats(existing.rows[0].business_id)
+    await businessService.updateBusinessStats(businessId)
 
-    const { analysis, shouldPublish } = await aiModerationService.moderateReview({
-      title: nextTitle,
-      content: nextContent,
-      rating: nextRating,
-      businessName: business.rows[0].name,
-      userId,
-      businessId: existing.rows[0].business_id,
-      excludeReviewId: reviewId,
-    })
-
-    const status = shouldPublish ? 'published' : 'pending'
-    const result = await query(
-      `UPDATE reviews SET
-        status = $1, ai_risk_score = $2, ai_flags = $3, ai_analysis = $4, updated_at = NOW()
-       WHERE id = $5 RETURNING *`,
-      [
-        status,
-        analysis.riskScore,
-        JSON.stringify(analysis.flags),
-        JSON.stringify({ ...analysis, processingStage: 'completed' }),
+    runInBackground('finalize-update', () =>
+      finalizeUpdatedReview({
         reviewId,
-      ],
+        businessId,
+        businessName: business.rows[0].name,
+        userId,
+        rating: nextRating,
+        title: nextTitle,
+        content: nextContent,
+      }),
     )
 
-    if (status === 'published') {
-      await businessService.updateBusinessStats(existing.rows[0].business_id)
-    }
-
-    const author = await query('SELECT name, email FROM users WHERE id = $1', [userId])
-    await notifyBusinessOwnerAboutReview({
-      businessId: existing.rows[0].business_id,
-      rating: nextRating,
-      authorName: author.rows[0]?.name,
-      status,
-      isEdit: true,
-    })
-
-    if (status === 'published' && author.rows[0]?.email) {
-      await emailService.sendReviewPublishedEmail(author.rows[0].email, business.rows[0].name)
-    }
-
-    await notificationService.create(
-      userId,
-      status === 'published' ? 'Review updated and published' : 'Review update in processing',
-      status === 'published'
-        ? `Your updated review for ${business.rows[0].name} passed our checks and is live.`
-        : `Your updated review for ${business.rows[0].name} is being processed again before it goes live.`,
-      'review_updated',
-    )
-
-    return { review: result.rows[0], aiAnalysis: analysis, processing: true }
+    return { review: result.rows[0], processing: true }
   },
 
   async getLatest(queryParams) {
