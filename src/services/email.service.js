@@ -399,7 +399,7 @@ export const emailService = {
   async sendPasswordResetEmail(to, token, resetBaseUrl = env.PUBLIC_SITE_URL) {
     const APP_NAME = await appName()
     const base = String(resetBaseUrl || env.PUBLIC_SITE_URL).replace(/\/$/, '')
-    const resetUrl = `${base}/reset-password?token=${encodeURIComponent(token)}`
+    const resetUrl = `${base}/login?token=${encodeURIComponent(token)}`
     await sendTemplatedEmail({
       to,
       subject: 'Reset your password',
