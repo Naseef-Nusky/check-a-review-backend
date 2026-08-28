@@ -60,13 +60,13 @@ export const businessService = {
     let idx = 1
 
     if (q) {
-      where += ` AND (b.name ILIKE $${idx} OR b.category ILIKE $${idx})`
-      params.push(`%${q}%`)
+      where += ` AND b.name ILIKE $${idx}`
+      params.push(`%${String(q).trim()}%`)
       idx++
     }
     if (category) {
       where += ` AND b.category ILIKE $${idx}`
-      params.push(`%${category}%`)
+      params.push(`%${String(category).trim()}%`)
       idx++
     }
 
