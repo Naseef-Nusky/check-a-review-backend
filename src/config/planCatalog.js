@@ -1,4 +1,4 @@
-export const CATALOG_VERSION = 6
+export const CATALOG_VERSION = 8
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
 export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium']
@@ -132,7 +132,6 @@ export const PLAN_CATALOG = {
     name: 'Plus',
     tagline: 'Turn trust into demand',
     monthlyDollars: 319,
-    perDomain: true,
     checkout: 'trial',
     trialDays: 14,
     invitationsPerMonth: 300,
@@ -160,7 +159,6 @@ export const PLAN_CATALOG = {
     name: 'Premium',
     tagline: 'Make feedback your competitive edge',
     monthlyDollars: 799,
-    perDomain: true,
     checkout: 'demo',
     invitationsPerMonth: 1000,
     widgets: 21,
@@ -291,7 +289,7 @@ export function buildPricingContentFromCatalog() {
     heroSubtitle:
       'Plans built like a modern review platform: collect feedback, showcase TrustScore, and convert trust into demand.',
     billingNote:
-      'Paid plans are priced and billed monthly in USD. Plus and Premium are billed per domain.',
+      'Paid plans are priced and billed monthly in USD.',
     trustBadge: '14-day free trial on Plus',
     logos: [],
     steps: [
@@ -345,7 +343,7 @@ export function buildPricingContentFromCatalog() {
     faqs: [
       {
         question: 'Are prices billed monthly or annually?',
-        answer: 'Prices are shown per month in USD and billed monthly. Plus and Premium are billed per active domain.',
+        answer: 'Prices are shown per month in USD and billed monthly.',
       },
       {
         question: 'Does Plus include a free trial?',

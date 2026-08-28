@@ -183,7 +183,7 @@ export const squareService = {
           type: 'SUBSCRIPTION_PLAN_VARIATION',
           id: variationTempId,
           subscriptionPlanVariationData: {
-            name: `${name || key} ${String(cadence || 'monthly').toLowerCase()}`,
+            name: `${name || key} monthly`,
             subscriptionPlanId: planId,
             phases: buildPhases({ cadence, amountCents, trialDays, currency }),
           },

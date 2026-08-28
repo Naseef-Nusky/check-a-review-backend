@@ -5,6 +5,7 @@ import { squareService } from './square.service.js'
 import { CATALOG_VERSION, PAID_SQUARE_PLANS, PLAN_CATALOG, formatLimit, getPlan, isUnlimited } from '../config/planCatalog.js'
 
 const BILLABLE_KEYS = ['starter', 'plus', 'premium']
+const BILLING_CADENCE = 'MONTHLY'
 
 let tableReady = false
 
@@ -128,6 +129,23 @@ async function ensureBillingPlansTable() {
 
   await query(`DELETE FROM billing_plans WHERE plan_key = 'enterprise'`)
 
+  // Plans are monthly-only; fix legacy rows (yearly cadence or 12× monthly amount on any plan).
+  await query(
+    `UPDATE billing_plans
+     SET cadence = $1,
+         amount_cents = monthly_amount_cents,
+         per_domain = FALSE,
+         square_variation_id = NULL,
+         updated_at = NOW()
+     WHERE monthly_amount_cents IS NOT NULL
+       AND (
+         cadence IS DISTINCT FROM $1
+         OR amount_cents IS DISTINCT FROM monthly_amount_cents
+         OR per_domain = TRUE
+       )`,
+    [BILLING_CADENCE],
+  )
+
   tableReady = true
 }
 
@@ -157,6 +175,10 @@ function formatCurrencyAmount(cents, currency) {
   }
 }
 
+function computeMonthlyChargeCents(plan) {
+  return Math.round(Number(plan.monthlyAmountCents ?? plan.amountCents ?? 0))
+}
+
 function mapPlan(row) {
   if (!row) return null
   const catalog = getPlan(row.plan_key)
@@ -170,13 +192,13 @@ function mapPlan(row) {
   return {
     key: row.plan_key,
     name: row.name,
-    amountCents: Number(row.amount_cents),
+    amountCents: monthlyAmountCents,
     monthlyAmountCents,
     monthlyDollars: monthlyAmountCents / 100,
     currency: String(row.currency || 'GBP').toUpperCase(),
-    cadence: row.cadence || 'MONTHLY',
+    cadence: BILLING_CADENCE,
     active: row.active,
-    perDomain: Boolean(row.per_domain),
+    perDomain: false,
     trialDays: Number(row.trial_days || 0),
     checkout: row.checkout_mode || catalog.checkout,
     invitationsPerMonth: invitations,
@@ -192,8 +214,7 @@ function mapPlan(row) {
         ? 'Contact sales'
         : formatCurrencyAmount(monthlyAmountCents, String(row.currency || 'GBP').toUpperCase()),
     periodLabel: catalog.periodLabel,
-    yearlyPriceLabel: `${formatCurrencyAmount(Number(row.amount_cents), String(row.currency || 'GBP').toUpperCase())} / month`,
-    billingPeriodLabel: `${formatCurrencyAmount(Number(row.amount_cents), String(row.currency || 'GBP').toUpperCase())} / month`,
+    billingPeriodLabel: `${formatCurrencyAmount(monthlyAmountCents, String(row.currency || 'GBP').toUpperCase())} / month`,
     synced: Boolean(row.square_plan_id),
     limitsLabel: {
       invitations: formatLimit(invitations),
@@ -247,18 +268,13 @@ export const billingPlansService = {
       monthlyAmountCents = Number(data.monthlyAmountCents)
     }
 
-    const cadence = data.cadence !== undefined ? String(data.cadence).trim().toUpperCase() : existing.cadence
     const currency = data.currency !== undefined ? String(data.currency).trim().toUpperCase() : existing.currency
     const active = data.active !== undefined ? Boolean(data.active) : existing.active
-    const amountCents =
-      cadence === 'YEARLY' ? Math.round(monthlyAmountCents * 12) : Math.round(monthlyAmountCents)
+    const amountCents = Math.round(monthlyAmountCents)
 
     if (!name) throw new AppError('Plan name is required', 400)
     if (!Number.isFinite(monthlyAmountCents) || monthlyAmountCents < 0) {
       throw new AppError('Monthly price must be a non-negative dollar amount', 400)
-    }
-    if (!['MONTHLY', 'YEARLY', 'WEEKLY'].includes(cadence)) {
-      throw new AppError('cadence must be MONTHLY, YEARLY, or WEEKLY', 400)
     }
     if (!currency || currency.length !== 3) {
       throw new AppError('currency must be a 3-letter code like GBP or USD', 400)
@@ -294,7 +310,7 @@ export const billingPlansService = {
         amountCents,
         monthlyAmountCents,
         currency,
-        cadence,
+        BILLING_CADENCE,
         active,
         parseLimitField(data.invitationsPerMonth, existing.invitationsPerMonth),
         parseLimitField(data.widgets, existing.widgets),
@@ -319,12 +335,15 @@ export const billingPlansService = {
 
     const plan = await this.getByKey(planKey)
     if (!plan.active) throw new AppError(`Plan "${planKey}" is inactive`, 400)
+    if (plan.cadence !== BILLING_CADENCE) {
+      throw new AppError(`Plan "${planKey}" must use monthly billing before syncing to Square`, 400)
+    }
     const synced = await squareService.upsertSubscriptionPlan({
       key: plan.key,
       name: plan.name,
-      amountCents: plan.amountCents,
+      amountCents: plan.monthlyAmountCents,
       currency: plan.currency,
-      cadence: plan.cadence,
+      cadence: BILLING_CADENCE,
       trialDays: plan.trialDays,
       existingPlanId: plan.squarePlanId,
       existingVariationId: plan.squareVariationId,
@@ -348,5 +367,9 @@ export const billingPlansService = {
       out.push(await this.syncToSquare(key))
     }
     return out
+  },
+
+  computeMonthlyChargeCents(plan) {
+    return computeMonthlyChargeCents(plan)
   },
 }

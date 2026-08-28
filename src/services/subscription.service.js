@@ -68,6 +68,27 @@ function addDays(from, days) {
   return date
 }
 
+async function monthlyChargeForBusiness(planRow) {
+  return billingPlansService.computeMonthlyChargeCents(planRow)
+}
+
+async function finalizeExpiredCancellation(businessId, row) {
+  if (!row || row.plan === 'free' || row.status !== 'cancelled') return row
+  const end = row.current_period_end ? new Date(row.current_period_end) : null
+  if (!end || end > new Date()) return row
+
+  const result = await query(
+    `UPDATE subscriptions
+     SET plan = 'free',
+         square_subscription_id = NULL,
+         updated_at = NOW()
+     WHERE business_id = $1
+     RETURNING *`,
+    [businessId],
+  )
+  return result.rows[0] || { ...row, plan: 'free', square_subscription_id: null }
+}
+
 async function findSubscriptionRow({ customerId, subscriptionId, businessId } = {}) {
   if (businessId) {
     const byBusiness = await query('SELECT * FROM subscriptions WHERE business_id = $1 LIMIT 1', [businessId])
@@ -106,27 +127,46 @@ export const subscriptionService = {
   async getByBusiness(businessId) {
     await ensureSquareColumns()
     const result = await query('SELECT * FROM subscriptions WHERE business_id = $1', [businessId])
-    const row = result.rows[0] || { plan: 'free', status: 'active' }
+    let row = result.rows[0] || { plan: 'free', status: 'active' }
+    row = await finalizeExpiredCancellation(businessId, row)
 
     let paymentMethod = null
     if (row.square_subscription_id && squareService.hasCredentials()) {
       try {
         const remote = await squareService.getSubscription(row.square_subscription_id)
         const periodEnd = extractPeriodEnd(remote || {})
-        if (periodEnd) {
+        const canceledDate = parseSquareDate(remote?.canceledDate || remote?.canceled_date)
+        const remoteStatus = String(remote?.status || '').toUpperCase()
+
+        if (remoteStatus === 'CANCELED' || remoteStatus === 'DEACTIVATED') {
+          row = await finalizeExpiredCancellation(businessId, {
+            ...row,
+            status: 'cancelled',
+            current_period_end: periodEnd || canceledDate || row.current_period_end,
+          })
+        } else if (canceledDate && row.status === 'cancelled') {
+          const end = canceledDate || periodEnd
+          if (end) {
+            await setPeriodEnd(businessId, end)
+            row.current_period_end = end
+          }
+        } else if (periodEnd) {
           await setPeriodEnd(businessId, periodEnd)
           row.current_period_end = periodEnd
         }
-        const cardId = remote?.cardId || remote?.card_id || null
-        if (cardId) {
-          const card = await squareService.getCard(cardId)
-          if (card) {
-            paymentMethod = {
-              id: card.id,
-              brand: card.cardBrand || card.card_brand || 'CARD',
-              last4: card.last4 || card.last_4 || '••••',
-              expMonth: Number(card.expMonth || card.exp_month || 0) || null,
-              expYear: Number(card.expYear || card.exp_year || 0) || null,
+
+        if (row.square_subscription_id && row.plan !== 'free') {
+          const cardId = remote?.cardId || remote?.card_id || null
+          if (cardId) {
+            const card = await squareService.getCard(cardId)
+            if (card) {
+              paymentMethod = {
+                id: card.id,
+                brand: card.cardBrand || card.card_brand || 'CARD',
+                last4: card.last4 || card.last_4 || '••••',
+                expMonth: Number(card.expMonth || card.exp_month || 0) || null,
+                expYear: Number(card.expYear || card.exp_year || 0) || null,
+              }
             }
           }
         }
@@ -137,13 +177,18 @@ export const subscriptionService = {
 
     const entitlements = await getEntitlements(businessId)
     const billingPlans = await billingPlansService.list().catch(() => [])
+    const cancellationScheduled = row.status === 'cancelled' && row.plan !== 'free'
     return {
       ...row,
       paymentMethod,
       entitlements,
       catalog: billingPlans,
       salesEmail: env.SALES_EMAIL,
-      autoRenew: Boolean(row.square_subscription_id && ['active', 'trialing', 'past_due'].includes(row.status)),
+      autoRenew: Boolean(
+        row.square_subscription_id && ['active', 'trialing', 'past_due'].includes(row.status),
+      ),
+      cancellationScheduled,
+      cancelAtPeriodEnd: cancellationScheduled ? row.current_period_end : null,
     }
   },
 
@@ -161,6 +206,12 @@ export const subscriptionService = {
     if (!planRow.squarePlanId) {
       throw new AppError(
         `Plan "${plan}" is not synced to Square yet. Open CRM → Billing plans and click Sync.`,
+        400,
+      )
+    }
+    if (!planRow.squareVariationId) {
+      throw new AppError(
+        `Plan "${plan}" must be re-synced for monthly billing. CRM → Billing plans → Sync to Square.`,
         400,
       )
     }
@@ -184,16 +235,7 @@ export const subscriptionService = {
       )
     }
 
-    let amountCents = planRow.amountCents
-    if (planRow.perDomain) {
-      const domains = await query(
-        `SELECT COUNT(*)::int AS count FROM business_domains WHERE business_id = $1 AND status = 'active'`,
-        [businessId],
-      )
-      const domainCount = Math.max(1, domains.rows[0]?.count || 1)
-      const maxDomains = Number.isFinite(planRow.domains) ? planRow.domains : domainCount
-      amountCents = planRow.amountCents * Math.min(domainCount, maxDomains)
-    }
+    let amountCents = await monthlyChargeForBusiness(planRow)
 
     const link = await squareService.createCheckoutLink({
       customerId,
@@ -252,9 +294,9 @@ export const subscriptionService = {
 
     const planRow = await billingPlansService.getByKey(plan)
     if (!planRow.active) throw new AppError(`Plan "${plan}" is inactive`, 400)
-    if (!planRow.squareVariationId && !planRow.squarePlanId) {
+    if (!planRow.squareVariationId) {
       throw new AppError(
-        `Plan "${plan}" is not synced to Square yet. Open CRM → Billing plans and click Sync.`,
+        `Plan "${plan}" must be synced to Square for monthly billing. Open CRM → Billing plans → Sync to Square (all plans).`,
         400,
       )
     }
@@ -279,22 +321,13 @@ export const subscriptionService = {
       )
     }
 
-    let amountCents = planRow.amountCents
-    if (planRow.perDomain) {
-      const domains = await query(
-        `SELECT COUNT(*)::int AS count FROM business_domains WHERE business_id = $1 AND status = 'active'`,
-        [businessId],
-      )
-      const domainCount = Math.max(1, domains.rows[0]?.count || 1)
-      const maxDomains = Number.isFinite(planRow.domains) ? planRow.domains : domainCount
-      amountCents = planRow.amountCents * Math.min(domainCount, maxDomains)
-    }
+    const amountCents = await monthlyChargeForBusiness(planRow)
 
     const created = await squareService.createCardSubscription({
       customerId,
       sourceId,
       verificationToken,
-      planVariationId: planRow.squareVariationId || planRow.squarePlanId,
+      planVariationId: planRow.squareVariationId,
       businessId,
       plan,
     })
@@ -374,7 +407,7 @@ export const subscriptionService = {
     let currency = 'GBP'
     try {
       const planRow = await billingPlansService.getByKey(pending)
-      amountCents = Number(planRow?.amountCents || 0)
+      amountCents = await monthlyChargeForBusiness(planRow)
       currency = planRow?.currency || 'GBP'
     } catch {
       // catalog lookup is best-effort for CRM payment history
@@ -410,21 +443,34 @@ export const subscriptionService = {
     await assertBusinessOwner(businessId, userId)
 
     const sub = await this.getByBusiness(businessId)
+    if (sub.status === 'cancelled' && sub.plan !== 'free') {
+      return sub
+    }
     if (!sub.square_subscription_id) throw new AppError('No active Square subscription to cancel', 400)
 
-    await squareService.cancelSubscription(sub.square_subscription_id)
+    const canceled = await squareService.cancelSubscription(sub.square_subscription_id)
+    const periodEnd =
+      parseSquareDate(canceled?.canceledDate || canceled?.canceled_date) ||
+      extractPeriodEnd(canceled || {}) ||
+      sub.current_period_end ||
+      addMonths(new Date(), 1)
+
     const result = await query(
       `UPDATE subscriptions
-       SET plan = 'free',
-           status = 'cancelled',
-           square_subscription_id = NULL,
+       SET status = 'cancelled',
            pending_plan = NULL,
+           current_period_end = $2,
            updated_at = NOW()
        WHERE business_id = $1
        RETURNING *`,
-      [businessId],
+      [businessId, periodEnd],
     )
-    return result.rows[0]
+    const row = result.rows[0]
+    return {
+      ...row,
+      cancellationScheduled: true,
+      cancelAtPeriodEnd: periodEnd,
+    }
   },
 
   async updatePaymentMethod(businessId, userId, sourceId, verificationToken) {

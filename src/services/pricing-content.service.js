@@ -78,18 +78,17 @@ function normalizePricingContent(content = {}) {
 function buildBillingNoteFromPlans(existingNote, billingPlans = []) {
   const paidPlans = billingPlans.filter((plan) => plan.checkout !== 'sales' && Number(plan.monthlyAmountCents) > 0)
   const primaryCurrency = paidPlans[0]?.currency || 'GBP'
-  const perDomainPlans = billingPlans.filter((plan) => plan.perDomain).map((plan) => plan.name)
-  const perDomainText =
-    perDomainPlans.length > 0 ? ` ${perDomainPlans.join(' and ')} are billed per domain.` : ''
 
   if (!String(existingNote || '').trim()) {
-    return `Paid plans are priced and billed monthly in ${primaryCurrency}.${perDomainText}`
+    return `Paid plans are priced and billed monthly in ${primaryCurrency}.`
   }
 
   return String(existingNote)
     .replace(/priced per month and billed annually/gi, 'priced and billed monthly')
     .replace(/billed annually/gi, 'billed monthly')
     .replace(/billed upfront annually/gi, 'billed monthly')
+    .replace(/\s*(Plus and Premium are billed per domain\.?|are billed per domain\.?)/gi, '')
+    .replace(/\/month,\s*per domain/gi, '/month')
     .replace(/in\s+[A-Z]{3}\b/i, `in ${primaryCurrency}`)
     .replace(/Starter, Plus, and Premium synced to Square in [A-Z]{3}\.?/i, `Paid plans are billed in ${primaryCurrency}.`)
 }
