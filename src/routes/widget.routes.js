@@ -292,7 +292,7 @@ router.get('/:businessId', async (req, res, next) => {
 
     res.type('html').send(renderWidgetHtml(widgetData, style))
   } catch (err) {
-    if (err instanceof AppError && (err.code === 'DOMAIN_REQUIRED' || err.code === 'DOMAIN_NOT_ALLOWED' || err.code === 'WIDGET_PLAN' || err.code === 'WIDGET_LIMIT')) {
+    if (err instanceof AppError && (err.code === 'DOMAIN_REQUIRED' || err.code === 'DOMAIN_NOT_ALLOWED' || err.code === 'WIDGET_PLAN' || err.code === 'WIDGET_LIMIT' || err.code === 'PAYMENT_REQUIRED')) {
       const wantsJson = req.query.format === 'json' || req.accepts(['html', 'json']) === 'json'
       if (wantsJson) return next(err)
 
@@ -308,7 +308,14 @@ router.get('/:businessId', async (req, res, next) => {
 
       return res.status(err.statusCode || 403).type('html').send(
         renderBlockedHtml({
-          title: err.code === 'DOMAIN_REQUIRED' ? 'Domain required' : err.code?.startsWith('WIDGET') ? 'Widget not included' : 'Domain not allowed',
+          title:
+            err.code === 'PAYMENT_REQUIRED'
+              ? 'Subscription payment required'
+              : err.code === 'DOMAIN_REQUIRED'
+                ? 'Domain required'
+                : err.code?.startsWith('WIDGET')
+                  ? 'Widget not included'
+                  : 'Domain not allowed',
           message: err.message,
           domains,
         }),

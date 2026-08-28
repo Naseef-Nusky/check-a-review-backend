@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import sgMail from '@sendgrid/mail'
 import { env } from '../config/env.js'
+import { PAST_DUE_GRACE_DAYS } from './planEntitlements.service.js'
 import { settingsService } from './settings.service.js'
 import { uploadsRoot } from '../middleware/upload.js'
 import { MEDIA_KIND, mediaService } from './media.service.js'
@@ -607,7 +608,53 @@ export const emailService = {
         intro: `We could not collect the monthly renewal for your <strong>${escapeHtml(plan)}</strong> plan.`,
         body: extras.detail
           ? escapeHtml(extras.detail)
-          : 'Your subscription is marked past due. Please retry checkout or update your payment method so your plan features stay available.',
+          : `Your renewal payment failed. You have ${PAST_DUE_GRACE_DAYS} days to retry payment or update your card before paid features are paused. After that, your plan stays on file but widgets, invitations, and other paid limits revert to Free until Square collects the overdue payment.`,
+        primaryCta: { label: 'Retry payment', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      },
+    })
+  },
+
+  async sendPaymentGraceReminder(to, plan, extras = {}) {
+    const day = Number(extras.day || 0)
+    const graceEndsAt = extras.graceEndsAt ? formatEmailDate(extras.graceEndsAt) : 'soon'
+    const graceDaysRemaining = Number(extras.graceDaysRemaining || 0)
+    await sendTemplatedEmail({
+      to,
+      subject: `Payment reminder: ${plan} plan (${day}-day grace check-in)`,
+      template: {
+        eyebrow: 'Payment reminder',
+        title: `Day ${day} payment reminder`,
+        intro: `Your <strong>${escapeHtml(plan)}</strong> renewal is still overdue.`,
+        body: `This is your day ${day} reminder during the ${PAST_DUE_GRACE_DAYS}-day grace period. Please retry payment or update your card by <strong>${escapeHtml(String(graceEndsAt))}</strong>${graceDaysRemaining ? ` (${graceDaysRemaining} day(s) left)` : ''} to avoid losing paid features.`,
+        primaryCta: { label: 'Retry payment', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      },
+    })
+  },
+
+  async sendPaymentGraceFinalWarning(to, plan, extras = {}) {
+    const graceEndsAt = extras.graceEndsAt ? formatEmailDate(extras.graceEndsAt) : 'soon'
+    await sendTemplatedEmail({
+      to,
+      subject: `Final warning: ${plan} plan payment due before grace ends`,
+      template: {
+        eyebrow: 'Final warning',
+        title: 'Your grace period ends soon',
+        intro: `Your <strong>${escapeHtml(plan)}</strong> renewal payment is still overdue.`,
+        body: `This is your final warning before the ${PAST_DUE_GRACE_DAYS}-day grace period ends on <strong>${escapeHtml(String(graceEndsAt))}</strong>. If payment is not received, paid features such as widgets and invitation limits will be paused.`,
+        primaryCta: { label: 'Pay now', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
+      },
+    })
+  },
+
+  async sendPaymentGraceEnded(to, plan, extras = {}) {
+    await sendTemplatedEmail({
+      to,
+      subject: `Paid features paused for your ${plan} plan`,
+      template: {
+        eyebrow: 'Grace period ended',
+        title: 'Paid features are now paused',
+        intro: `The ${PAST_DUE_GRACE_DAYS}-day grace period for your <strong>${escapeHtml(plan)}</strong> plan has ended${extras.graceEndsAt ? ` on <strong>${escapeHtml(formatEmailDate(extras.graceEndsAt))}</strong>` : ''}.`,
+        body: 'We still could not collect your monthly renewal. Paid features are paused until payment succeeds. Your plan remains on file and will restore automatically after Square collects the overdue payment.',
         primaryCta: { label: 'Retry payment', href: `${env.BUSINESS_PORTAL_URL}/subscription` },
       },
     })

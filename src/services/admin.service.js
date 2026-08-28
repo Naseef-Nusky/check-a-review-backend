@@ -4,7 +4,7 @@ import { AppError, slugify } from '../utils/helpers.js'
 import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
 import { bumpTokenVersion } from '../utils/session.js'
-import { ensureBusinessStatusColumn } from './business.service.js'
+import { ensureBusinessStatusColumn, businessService } from './business.service.js'
 
 let crmRolesReady = false
 
@@ -486,16 +486,8 @@ export const adminService = {
   },
 
   async deleteBusiness(id) {
-    const existing = await this.getBusinessById(id)
-    const ownerId = existing.owner_id || existing.user_id
-
-    await query('DELETE FROM businesses WHERE id = $1', [id])
-
-    if (ownerId) {
-      await query(`DELETE FROM users WHERE id = $1 AND role = 'business'`, [ownerId])
-    }
-
-    return { id, deleted: true }
+    await this.getBusinessById(id)
+    return businessService.removeBusinessRecord(id)
   },
 
   async getAllReviews() {

@@ -9,7 +9,7 @@ import {
   businessLogoPublicPath,
   mediaService,
 } from './media.service.js'
-import { assertBusinessAccess, getBusinessForUser } from './businessAccess.service.js'
+import { assertBusinessAccess, assertBusinessOwner, getBusinessForUser } from './businessAccess.service.js'
 
 let statusColumnReady = false
 
@@ -277,12 +277,13 @@ export const businessService = {
 
   async moderate(businessId, status) {
     await ensureBusinessStatusColumn()
-    if (!['published', 'rejected'].includes(status)) {
+    if (!['published', 'rejected', 'pending'].includes(status)) {
       throw new AppError('Invalid business status', 400)
     }
 
     const before = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
     if (before.rows.length === 0) throw new AppError('Business not found', 404)
+    const previousStatus = before.rows[0].status
 
     const result = await query(
       `UPDATE businesses SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
@@ -292,7 +293,7 @@ export const businessService = {
     const owner = await query('SELECT id, email, name FROM users WHERE id = $1', [business.user_id])
 
     if (owner.rows[0]) {
-      if (status === 'published') {
+      if (status === 'published' && previousStatus !== 'published') {
         await emailService.sendBusinessApprovedEmail(owner.rows[0].email, business.name)
         await notificationService.create(
           owner.rows[0].id,
@@ -302,7 +303,7 @@ export const businessService = {
         )
       }
 
-      if (status === 'rejected') {
+      if (status === 'rejected' && previousStatus !== 'rejected') {
         await emailService.sendBusinessRejectedEmail(owner.rows[0].email, business.name)
         await notificationService.create(
           owner.rows[0].id,
@@ -314,6 +315,49 @@ export const businessService = {
     }
 
     return business
+  },
+
+  async removeBusinessRecord(businessId) {
+    await ensureBusinessStatusColumn()
+    const existing = await query('SELECT * FROM businesses WHERE id = $1', [businessId])
+    if (existing.rows.length === 0) throw new AppError('Business not found', 404)
+
+    const ownerId = existing.rows[0].user_id
+    const sub = await query(
+      'SELECT square_subscription_id FROM subscriptions WHERE business_id = $1',
+      [businessId],
+    )
+    const squareSubId = sub.rows[0]?.square_subscription_id
+
+    if (squareSubId) {
+      try {
+        const { squareService } = await import('./square.service.js')
+        if (squareService.hasCredentials()) {
+          await squareService.cancelSubscription(squareSubId)
+        }
+      } catch (err) {
+        console.error('Could not cancel Square subscription before business delete:', err.message)
+      }
+    }
+
+    try {
+      await mediaService.deleteImage(MEDIA_KIND.BUSINESS_LOGO, businessId)
+    } catch {
+      // ignore missing logo
+    }
+
+    await query('DELETE FROM businesses WHERE id = $1', [businessId])
+
+    if (ownerId) {
+      await query(`DELETE FROM users WHERE id = $1 AND role = 'business'`, [ownerId])
+    }
+
+    return { id: businessId, deleted: true }
+  },
+
+  async deleteOwnedBusiness(businessId, userId) {
+    await assertBusinessOwner(businessId, userId)
+    return this.removeBusinessRecord(businessId)
   },
 
   updateBusinessStats,

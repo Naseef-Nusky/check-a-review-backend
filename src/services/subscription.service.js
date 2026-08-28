@@ -6,7 +6,14 @@ import { AppError } from '../utils/helpers.js'
 import { env } from '../config/env.js'
 import { assertBusinessOwner } from './businessAccess.service.js'
 import { PAID_SQUARE_PLANS } from '../config/planCatalog.js'
-import { ensureAssignablePlans, getEntitlements } from './planEntitlements.service.js'
+import { ensureAssignablePlans, getEntitlements, getGraceDaysElapsed, PAST_DUE_GRACE_DAYS } from './planEntitlements.service.js'
+
+const CLEAR_PAST_DUE_NOTICES_SQL = `
+  past_due_notice_day7_at = NULL,
+  past_due_notice_day14_at = NULL,
+  past_due_notice_day20_at = NULL,
+  past_due_grace_ended_notice_at = NULL
+`
 
 let squareColumnsReady = false
 
@@ -17,6 +24,11 @@ async function ensureSquareColumns() {
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_plan VARCHAR(20)`)
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ`)
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renewal_reminder_period_end TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_since TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_notice_day7_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_notice_day14_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_notice_day20_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_grace_ended_notice_at TIMESTAMPTZ`)
   await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id VARCHAR(255)`)
   await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'GBP'`)
   await query(`ALTER TABLE subscriptions DROP COLUMN IF EXISTS stripe_customer_id`)
@@ -182,6 +194,12 @@ export const subscriptionService = {
       ...row,
       paymentMethod,
       entitlements,
+      billingPlan: entitlements.billingPlan || row.plan,
+      paymentOverdue: Boolean(entitlements.paymentOverdue),
+      paymentRequired: Boolean(entitlements.paymentRequired),
+      featuresSuspended: Boolean(entitlements.featuresSuspended),
+      graceEndsAt: entitlements.graceEndsAt,
+      graceDaysRemaining: entitlements.graceDaysRemaining,
       catalog: billingPlans,
       salesEmail: env.SALES_EMAIL,
       autoRenew: Boolean(
@@ -349,6 +367,8 @@ export const subscriptionService = {
        SET plan = $1,
            status = $2,
            pending_plan = NULL,
+           past_due_since = NULL,
+           ${CLEAR_PAST_DUE_NOTICES_SQL},
            square_customer_id = $3,
            square_subscription_id = $4,
            current_period_end = $5,
@@ -397,6 +417,8 @@ export const subscriptionService = {
        SET plan = $1,
            status = 'active',
            pending_plan = NULL,
+           past_due_since = NULL,
+           ${CLEAR_PAST_DUE_NOTICES_SQL},
            current_period_end = COALESCE(current_period_end, $2),
            updated_at = NOW()
        WHERE business_id = $3`,
@@ -520,16 +542,6 @@ export const subscriptionService = {
 
     await squareService.updateSubscriptionCard(row.square_subscription_id, card.id)
 
-    // If renewal previously failed, clear past_due after card update so user can keep features.
-    if (row.status === 'past_due') {
-      await query(
-        `UPDATE subscriptions
-         SET status = 'active', updated_at = NOW()
-         WHERE business_id = $1`,
-        [businessId],
-      )
-    }
-
     return this.getByBusiness(businessId)
   },
 
@@ -596,6 +608,15 @@ export const subscriptionService = {
            square_subscription_id = COALESCE($2, square_subscription_id),
            square_customer_id = COALESCE(square_customer_id, $3),
            status = $4,
+           past_due_since = CASE
+             WHEN $4 = 'past_due' THEN COALESCE(past_due_since, NOW())
+             WHEN $4 IN ('active', 'trialing') THEN NULL
+             ELSE past_due_since
+           END,
+           past_due_notice_day7_at = CASE WHEN $4 IN ('active', 'trialing') THEN NULL ELSE past_due_notice_day7_at END,
+           past_due_notice_day14_at = CASE WHEN $4 IN ('active', 'trialing') THEN NULL ELSE past_due_notice_day14_at END,
+           past_due_notice_day20_at = CASE WHEN $4 IN ('active', 'trialing') THEN NULL ELSE past_due_notice_day20_at END,
+           past_due_grace_ended_notice_at = CASE WHEN $4 IN ('active', 'trialing') THEN NULL ELSE past_due_grace_ended_notice_at END,
            current_period_end = COALESCE($5, current_period_end),
            updated_at = NOW()
        WHERE square_customer_id = $3 OR square_subscription_id = $2`,
@@ -635,6 +656,8 @@ export const subscriptionService = {
     await query(
       `UPDATE subscriptions
        SET status = 'active',
+           past_due_since = NULL,
+           ${CLEAR_PAST_DUE_NOTICES_SQL},
            current_period_end = $1,
            updated_at = NOW()
        WHERE business_id = $2`,
@@ -660,7 +683,9 @@ export const subscriptionService = {
 
     await query(
       `UPDATE subscriptions
-       SET status = 'past_due', updated_at = NOW()
+       SET status = 'past_due',
+           past_due_since = COALESCE(past_due_since, NOW()),
+           updated_at = NOW()
        WHERE business_id = $1`,
       [row.business_id],
     )
@@ -705,7 +730,11 @@ export const subscriptionService = {
 
     if (paymentStatus === 'FAILED' || paymentStatus === 'CANCELED') {
       await query(
-        `UPDATE subscriptions SET status = 'past_due', updated_at = NOW() WHERE business_id = $1`,
+        `UPDATE subscriptions
+         SET status = 'past_due',
+             past_due_since = COALESCE(past_due_since, NOW()),
+             updated_at = NOW()
+         WHERE business_id = $1`,
         [row.business_id],
       )
       const failed = await query(
@@ -738,6 +767,8 @@ export const subscriptionService = {
          SET plan = $1,
              status = 'active',
              pending_plan = NULL,
+             past_due_since = NULL,
+             ${CLEAR_PAST_DUE_NOTICES_SQL},
              current_period_end = $2,
              updated_at = NOW()
          WHERE business_id = $3`,
@@ -798,6 +829,88 @@ export const subscriptionService = {
     } else {
       await emailService.sendPaymentReceipt(email, amount, plan, { currency })
     }
+  },
+
+  async processPastDueGraceReminders() {
+    await ensureSquareColumns()
+    const result = await query(
+      `SELECT s.*, u.email
+       FROM subscriptions s
+       JOIN businesses b ON b.id = s.business_id
+       JOIN users u ON u.id = b.user_id
+       WHERE s.status = 'past_due'
+         AND s.plan <> 'free'
+         AND s.past_due_since IS NOT NULL
+         AND u.email IS NOT NULL`,
+    )
+
+    const reminders = [
+      { day: 7, column: 'past_due_notice_day7_at', send: (email, plan, extras) => emailService.sendPaymentGraceReminder(email, plan, extras) },
+      { day: 14, column: 'past_due_notice_day14_at', send: (email, plan, extras) => emailService.sendPaymentGraceReminder(email, plan, extras) },
+      { day: 20, column: 'past_due_notice_day20_at', send: (email, plan, extras) => emailService.sendPaymentGraceFinalWarning(email, plan, extras) },
+    ]
+
+    let sent = 0
+
+    for (const row of result.rows) {
+      const daysElapsed = getGraceDaysElapsed(row.past_due_since)
+      const graceEndsAt = addDays(new Date(row.past_due_since), PAST_DUE_GRACE_DAYS)
+      const graceDaysRemaining = Math.max(0, PAST_DUE_GRACE_DAYS - daysElapsed)
+
+      for (const reminder of reminders) {
+        if (daysElapsed < reminder.day || row[reminder.column]) continue
+
+        const claimed = await query(
+          `UPDATE subscriptions
+           SET ${reminder.column} = NOW(), updated_at = NOW()
+           WHERE id = $1 AND ${reminder.column} IS NULL
+           RETURNING id`,
+          [row.id],
+        )
+        if (!claimed.rows[0]) continue
+
+        try {
+          await reminder.send(row.email, row.plan, {
+            day: reminder.day,
+            graceDaysRemaining,
+            graceEndsAt,
+          })
+          sent += 1
+        } catch (err) {
+          console.error(`Past-due day ${reminder.day} reminder failed:`, err.message)
+          await query(
+            `UPDATE subscriptions SET ${reminder.column} = NULL, updated_at = NOW() WHERE id = $1`,
+            [row.id],
+          )
+        }
+      }
+
+      if (daysElapsed >= PAST_DUE_GRACE_DAYS && !row.past_due_grace_ended_notice_at) {
+        const claimed = await query(
+          `UPDATE subscriptions
+           SET past_due_grace_ended_notice_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND past_due_grace_ended_notice_at IS NULL
+           RETURNING id`,
+          [row.id],
+        )
+        if (!claimed.rows[0]) continue
+
+        try {
+          await emailService.sendPaymentGraceEnded(row.email, row.plan, { graceEndsAt })
+          sent += 1
+        } catch (err) {
+          console.error('Past-due grace ended notice failed:', err.message)
+          await query(
+            `UPDATE subscriptions
+             SET past_due_grace_ended_notice_at = NULL, updated_at = NOW()
+             WHERE id = $1`,
+            [row.id],
+          )
+        }
+      }
+    }
+
+    return sent
   },
 
   async processRenewalReminders() {

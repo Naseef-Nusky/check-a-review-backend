@@ -2,6 +2,7 @@ import { query } from '../db/pool.js'
 import { AppError } from '../utils/helpers.js'
 import { getPlan } from '../config/planCatalog.js'
 import { billingPlansService } from './billingPlans.service.js'
+import { getBusinessPlanKey } from './planEntitlements.service.js'
 import {
   assertBusinessAccess,
   assertBusinessOwner,
@@ -207,7 +208,8 @@ export const domainService = {
     const subscription = await query('SELECT plan FROM subscriptions WHERE business_id = $1', [
       businessId,
     ])
-    const plan = subscription.rows[0]?.plan || 'free'
+    const billingPlan = subscription.rows[0]?.plan || 'free'
+    const plan = await getBusinessPlanKey(businessId)
     const maxDomains = await getDomainsLimitForPlan(plan)
 
     const countResult = await query(
@@ -220,6 +222,7 @@ export const domainService = {
 
     return {
       plan,
+      billingPlan,
       maxDomains,
       maxDomainsLabel: formatLimit(maxDomains),
       usedDomains,

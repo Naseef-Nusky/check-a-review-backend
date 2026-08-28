@@ -114,6 +114,15 @@ router.put(
   },
 )
 
+router.delete('/:id', authenticate, authorize('business'), async (req, res, next) => {
+  try {
+    const result = await businessService.deleteOwnedBusiness(req.params.id, req.user.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/:id/analytics', authenticate, authorize('business'), async (req, res, next) => {
   try {
     const analytics = await businessService.getAnalytics(req.params.id, req.user.id)

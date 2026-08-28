@@ -20,17 +20,19 @@ async function start() {
   })
 
   const SIX_HOURS = 6 * 60 * 60 * 1000
-  const runRenewalReminders = async () => {
+  const runBillingReminderJobs = async () => {
     try {
       const { subscriptionService } = await import('./services/subscription.service.js')
-      const sent = await subscriptionService.processRenewalReminders()
-      if (sent) console.log(`Sent ${sent} monthly renewal reminder email(s)`)
+      const renewalSent = await subscriptionService.processRenewalReminders()
+      const graceSent = await subscriptionService.processPastDueGraceReminders()
+      if (renewalSent) console.log(`Sent ${renewalSent} monthly renewal reminder email(s)`)
+      if (graceSent) console.log(`Sent ${graceSent} past-due grace reminder email(s)`)
     } catch (err) {
-      console.error('Renewal reminder job failed:', err.message)
+      console.error('Billing reminder job failed:', err.message)
     }
   }
-  setTimeout(runRenewalReminders, 15_000)
-  setInterval(runRenewalReminders, SIX_HOURS)
+  setTimeout(runBillingReminderJobs, 15_000)
+  setInterval(runBillingReminderJobs, SIX_HOURS)
 }
 
 start()

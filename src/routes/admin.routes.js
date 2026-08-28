@@ -336,7 +336,7 @@ router.get('/businesses-pending', async (_req, res, next) => {
 
 router.patch(
   '/businesses/:id/moderate',
-  [body('status').isIn(['published', 'rejected']).withMessage('Invalid status')],
+  [body('status').isIn(['published', 'rejected', 'pending']).withMessage('Invalid status')],
   validate,
   async (req, res, next) => {
     try {

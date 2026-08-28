@@ -9,6 +9,49 @@ import {
   isUnlimited,
 } from '../config/planCatalog.js'
 
+export const PAST_DUE_GRACE_DAYS = 21
+
+async function ensurePastDueColumn() {
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_since TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_notice_day7_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_notice_day14_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_notice_day20_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_grace_ended_notice_at TIMESTAMPTZ`)
+  await query(
+    `UPDATE subscriptions
+     SET past_due_since = COALESCE(past_due_since, updated_at, NOW())
+     WHERE status = 'past_due' AND past_due_since IS NULL`,
+  )
+}
+
+export function getGraceDaysElapsed(pastDueSince) {
+  if (!pastDueSince) return 0
+  const since = new Date(pastDueSince)
+  if (Number.isNaN(since.getTime())) return 0
+  const ms = Date.now() - since.getTime()
+  return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)))
+}
+
+function addDays(from, days) {
+  const date = new Date(from)
+  date.setDate(date.getDate() + Number(days || 0))
+  return date
+}
+
+function getGraceState(pastDueSince) {
+  if (!pastDueSince) {
+    return { graceExpired: true, graceEndsAt: null, graceDaysRemaining: 0 }
+  }
+
+  const graceEndsAt = addDays(pastDueSince, PAST_DUE_GRACE_DAYS)
+  const now = new Date()
+  const graceExpired = now >= graceEndsAt
+  const msRemaining = graceEndsAt.getTime() - now.getTime()
+  const graceDaysRemaining = graceExpired ? 0 : Math.max(1, Math.ceil(msRemaining / (24 * 60 * 60 * 1000)))
+
+  return { graceExpired, graceEndsAt, graceDaysRemaining }
+}
+
 export async function ensureAssignablePlans() {
   await query(`
     UPDATE subscriptions SET plan = 'premium' WHERE plan = 'enterprise';
@@ -29,10 +72,52 @@ export async function ensureAssignablePlans() {
   `)
 }
 
+export async function getSubscriptionBillingState(businessId) {
+  await ensurePastDueColumn()
+  const result = await query(
+    'SELECT plan, status, past_due_since FROM subscriptions WHERE business_id = $1',
+    [businessId],
+  )
+  const row = result.rows[0] || { plan: 'free', status: 'active', past_due_since: null }
+  const billingPlan = String(row.plan || 'free').toLowerCase()
+  const status = String(row.status || 'active').toLowerCase()
+  const billingPlanKey = ASSIGNABLE_PLANS.includes(billingPlan) ? billingPlan : 'free'
+  const paymentOverdue = status === 'past_due' && billingPlanKey !== 'free'
+  const grace = paymentOverdue ? getGraceState(row.past_due_since) : { graceExpired: false, graceEndsAt: null, graceDaysRemaining: 0 }
+  const featuresSuspended = paymentOverdue && grace.graceExpired
+  const paymentRequired = featuresSuspended
+  const effectivePlan = featuresSuspended ? 'free' : billingPlanKey
+
+  return {
+    billingPlan: billingPlanKey,
+    status,
+    paymentOverdue,
+    paymentRequired,
+    featuresSuspended,
+    effectivePlan,
+    pastDueSince: row.past_due_since || null,
+    graceEndsAt: grace.graceEndsAt,
+    graceDaysRemaining: grace.graceDaysRemaining,
+    graceExpired: grace.graceExpired,
+  }
+}
+
 export async function getBusinessPlanKey(businessId) {
-  const result = await query('SELECT plan FROM subscriptions WHERE business_id = $1', [businessId])
-  const plan = String(result.rows[0]?.plan || 'free').toLowerCase()
-  return ASSIGNABLE_PLANS.includes(plan) ? plan : 'free'
+  const billing = await getSubscriptionBillingState(businessId)
+  return billing.effectivePlan
+}
+
+export async function assertPaymentCurrent(businessId) {
+  const billing = await getSubscriptionBillingState(businessId)
+  if (!billing.paymentRequired) return billing
+
+  const { AppError } = await import('../utils/helpers.js')
+  const plan = getPlan(billing.billingPlan)
+  throw new AppError(
+    `Your ${plan.name} renewal payment is overdue and the ${PAST_DUE_GRACE_DAYS}-day grace period has ended. Retry payment or update your card to restore paid features.`,
+    402,
+    'PAYMENT_REQUIRED',
+  )
 }
 
 async function countInvitationsThisMonth(businessId) {
@@ -72,7 +157,8 @@ function remaining(limit, used) {
 }
 
 export async function getEntitlements(businessId) {
-  const planKey = await getBusinessPlanKey(businessId)
+  const billing = await getSubscriptionBillingState(businessId)
+  const planKey = billing.effectivePlan
   const plan = getPlan(planKey)
   const [invitationsUsed, usersUsed, domainsUsed] = await Promise.all([
     countInvitationsThisMonth(businessId),
@@ -82,6 +168,15 @@ export async function getEntitlements(businessId) {
 
   return {
     plan: planKey,
+    billingPlan: billing.billingPlan,
+    subscriptionStatus: billing.status,
+    paymentOverdue: billing.paymentOverdue,
+    paymentRequired: billing.paymentRequired,
+    featuresSuspended: billing.featuresSuspended,
+    pastDueSince: billing.pastDueSince,
+    graceEndsAt: billing.graceEndsAt,
+    graceDaysRemaining: billing.graceDaysRemaining,
+    graceExpired: billing.graceExpired,
     name: plan.name,
     flags: {
       marketingAssets: Boolean(plan.marketingAssets),
@@ -118,6 +213,7 @@ export async function getEntitlements(businessId) {
 }
 
 export async function assertInvitationQuota(businessId) {
+  await assertPaymentCurrent(businessId)
   const entitlements = await getEntitlements(businessId)
   const limit = entitlements.limits.invitationsPerMonth
   if (isUnlimited(limit)) return entitlements
@@ -133,6 +229,7 @@ export async function assertInvitationQuota(businessId) {
 }
 
 export async function assertWidgetAccess(businessId, widgetId) {
+  await assertPaymentCurrent(businessId)
   const planKey = await getBusinessPlanKey(businessId)
   const plan = getPlan(planKey)
   if (!plan.widgets) {
