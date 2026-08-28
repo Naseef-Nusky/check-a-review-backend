@@ -11,14 +11,24 @@ let crmRolesReady = false
 export const adminService = {
   async getDashboardStats() {
     await ensureBusinessStatusColumn()
-    const [users, businesses, reviews, revenue, flagged, pendingBusinesses] = await Promise.all([
+    const [users, businesses, reviews, revenue, flagged, pendingBusinesses, revenueCurrencyRow] = await Promise.all([
       query(`SELECT COUNT(*) FROM users WHERE role = 'customer'`),
       query(`SELECT COUNT(*) FROM businesses WHERE status = 'published'`),
       query('SELECT COUNT(*) FROM reviews'),
       query(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'succeeded'`),
       query(`SELECT COUNT(*) FROM reviews WHERE status = 'pending'`),
       query(`SELECT COUNT(*) FROM businesses WHERE status = 'pending'`),
+      query(
+        `SELECT currency, COUNT(*)::int AS count
+         FROM payments
+         WHERE status = 'succeeded' AND currency IS NOT NULL AND currency <> ''
+         GROUP BY currency
+         ORDER BY count DESC
+         LIMIT 1`,
+      ),
     ])
+
+    const revenueCurrency = String(revenueCurrencyRow.rows[0]?.currency || 'GBP').toUpperCase()
 
     return {
       totalUsers: parseInt(users.rows[0].count, 10),
@@ -26,6 +36,7 @@ export const adminService = {
       totalBusinesses: parseInt(businesses.rows[0].count, 10),
       totalReviews: parseInt(reviews.rows[0].count, 10),
       totalRevenue: parseInt(revenue.rows[0].total, 10),
+      revenueCurrency,
       flaggedReviews: parseInt(flagged.rows[0].count, 10),
       pendingBusinesses: parseInt(pendingBusinesses.rows[0].count, 10),
     }
