@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { body } from 'express-validator'
 import { validate } from '../middleware/validate.js'
+import { emailService } from '../services/email.service.js'
 
 const router = Router()
 
@@ -15,10 +16,19 @@ router.post(
   validate,
   async (req, res, next) => {
     try {
+      const payload = {
+        name: String(req.body.name).trim(),
+        email: String(req.body.email).trim().toLowerCase(),
+        subject: String(req.body.subject).trim(),
+        message: String(req.body.message).trim(),
+      }
+
+      await emailService.sendContactForm(payload)
+
       res.json({
         success: true,
         message: 'Thank you for contacting us. We will get back to you shortly.',
-        data: { name: req.body.name, email: req.body.email, subject: req.body.subject },
+        data: payload,
       })
     } catch (err) {
       next(err)

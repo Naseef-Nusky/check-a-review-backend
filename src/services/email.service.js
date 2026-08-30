@@ -707,4 +707,39 @@ export const emailService = {
       },
     })
   },
+
+  async sendContactForm({ name, email, subject, message }) {
+    const supportEmail = env.SALES_EMAIL || env.SENDGRID_FROM_EMAIL || 'info@checkareview.com'
+    const safeName = escapeHtml(name)
+    const safeEmail = escapeHtml(email)
+    const safeSubject = escapeHtml(subject)
+    const safeMessage = escapeHtml(message).replaceAll('\n', '<br />')
+
+    await sendTemplatedEmail({
+      to: supportEmail,
+      subject: `[Contact] ${subject}`,
+      template: {
+        eyebrow: 'Website contact form',
+        title: 'New contact message',
+        intro: `<strong>${safeName}</strong> (${safeEmail}) sent a message through the public contact form.`,
+        body: `
+          <p style="margin:0 0 12px 0;"><strong>Subject:</strong> ${safeSubject}</p>
+          <p style="margin:0;white-space:normal;"><strong>Message:</strong><br />${safeMessage}</p>
+        `,
+        footerNote: `Reply directly to ${safeEmail} to respond.`,
+      },
+    })
+
+    await sendTemplatedEmail({
+      to: email,
+      subject: `We received your message — ${subject}`,
+      template: {
+        eyebrow: 'Support',
+        title: 'Thanks for contacting us',
+        intro: `Hi ${safeName}, we received your message and will get back to you shortly.`,
+        body: `<p style="margin:0 0 12px 0;"><strong>Subject:</strong> ${safeSubject}</p><p style="margin:0;">${safeMessage}</p>`,
+        footerNote: 'This is an automated confirmation. Please do not reply to this email.',
+      },
+    })
+  },
 }
