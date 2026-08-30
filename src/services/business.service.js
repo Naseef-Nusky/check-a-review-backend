@@ -128,6 +128,11 @@ export const businessService = {
       }
     }
 
+    if (data.website !== undefined && String(data.website).trim()) {
+      const { domainService } = await import('./domain.service.js')
+      await domainService.assertWebsiteResolves(data.website)
+    }
+
     const clearingLogo =
       (data.logoUrl !== undefined || data.logo_url !== undefined) &&
       !(data.logoUrl || data.logo_url)

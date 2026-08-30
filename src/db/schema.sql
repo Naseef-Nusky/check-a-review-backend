@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS website_settings (
   ai_moderation_enabled BOOLEAN DEFAULT TRUE,
   auto_publish_threshold INTEGER DEFAULT 85,
   email_provider VARCHAR(20) DEFAULT 'sendgrid',
+  domain_dns_check_enabled BOOLEAN DEFAULT TRUE,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

@@ -1,3 +1,4 @@
+import { lookup, Resolver } from 'node:dns/promises'
 import { query } from '../db/pool.js'
 import { AppError } from '../utils/helpers.js'
 import { getPlan } from '../config/planCatalog.js'
@@ -7,6 +8,120 @@ import {
   assertBusinessAccess,
   assertBusinessOwner,
 } from './businessAccess.service.js'
+
+const DNS_TIMEOUT_MS = 5000
+
+function dnsTimeoutError() {
+  const err = new Error('DNS lookup timed out')
+  err.code = 'ETIMEOUT'
+  return err
+}
+
+async function withTimeout(promise, ms) {
+  let timer
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(dnsTimeoutError()), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function lookupKind(resolveFn) {
+  try {
+    const answers = await withTimeout(resolveFn(), DNS_TIMEOUT_MS)
+    return Array.isArray(answers) && answers.length > 0 ? 'yes' : 'empty'
+  } catch (err) {
+    if (err?.code === 'ENOTFOUND') return 'nx'
+    if (err?.code === 'ENODATA') return 'empty'
+    throw err
+  }
+}
+
+async function resolveOnPublicDns(hostname) {
+  const resolver = new Resolver()
+  resolver.setServers(['8.8.8.8', '1.1.1.1'])
+  const ipv4 = await lookupKind(() => resolver.resolve4(hostname))
+  if (ipv4 === 'yes') return true
+  if (ipv4 === 'nx') return false
+
+  const extra = await Promise.allSettled([
+    lookupKind(() => resolver.resolve6(hostname)),
+    lookupKind(() => resolver.resolveCname(hostname)),
+  ])
+  if (extra.some((result) => result.status === 'fulfilled' && result.value === 'yes')) {
+    return true
+  }
+  const networkError = extra.find((result) => result.status === 'rejected')
+  if (networkError && extra.every((result) => result.status === 'rejected' || result.value !== 'yes')) {
+    const anyNxOrEmpty = extra.some((result) => result.status === 'fulfilled')
+    if (!anyNxOrEmpty) throw networkError.reason
+  }
+  return false
+}
+
+async function resolveOnSystemDns(hostname) {
+  const answers = await withTimeout(lookup(hostname, { all: true }), DNS_TIMEOUT_MS)
+  return Array.isArray(answers) ? answers.length > 0 : Boolean(answers)
+}
+
+export async function assertDomainResolves(hostname) {
+  const host = String(hostname || '')
+    .toLowerCase()
+    .replace(/^www\./, '')
+  if (!host) {
+    throw new AppError('Enter a valid domain, e.g. mybusiness.com', 400)
+  }
+
+  const candidates = [host, `www.${host}`]
+  let lastError = null
+
+  for (const candidate of candidates) {
+    try {
+      if (await resolveOnPublicDns(candidate)) return
+    } catch (err) {
+      lastError = err
+      try {
+        if (await resolveOnSystemDns(candidate)) return
+        lastError = null
+      } catch (fallbackErr) {
+        lastError = fallbackErr
+      }
+    }
+  }
+
+  const code = lastError?.code
+  if (code === 'ETIMEOUT' || code === 'EAI_AGAIN' || code === 'ECONNREFUSED') {
+    throw new AppError(
+      `We could not verify ${host} right now. Check your connection and try again.`,
+      503,
+      'DOMAIN_DNS',
+    )
+  }
+
+  throw new AppError(
+    `${host} does not appear to be a live domain. Check the spelling, or wait until the domain is registered and DNS is active.`,
+    400,
+    'DOMAIN_DNS',
+  )
+}
+
+export async function assertWebsiteResolves(input) {
+  const hostname = normalizeDomainInput(input)
+  try {
+    const { settingsService } = await import('./settings.service.js')
+    const enabled = await settingsService.isDomainDnsCheckEnabled()
+    if (!enabled) return hostname
+  } catch {
+    // If settings cannot be read, keep the safety check on
+  }
+  await assertDomainResolves(hostname)
+  return hostname
+}
 
 let domainsTableReady = false
 
@@ -254,12 +369,16 @@ export const domainService = {
     }
   },
 
+  async assertWebsiteResolves(input) {
+    return assertWebsiteResolves(input)
+  },
+
   async addDomain(businessId, userId, { domain } = {}) {
     await assertBusinessOwner(businessId, userId)
     await ensureBusinessDomainsTable()
     await migrateWebsiteIfNeeded(businessId)
 
-    const normalized = normalizeDomainInput(domain)
+    const normalized = await assertWebsiteResolves(domain)
     const limits = await this.getLimitInfo(businessId)
     if (!limits.canAdd) {
       throw new AppError(

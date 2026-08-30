@@ -9,14 +9,25 @@ import {
 const DEFAULTS = {
   aiModerationEnabled: true,
   autoPublishThreshold: env.AI_AUTO_PUBLISH_THRESHOLD,
+  domainDnsCheckEnabled: true,
 }
 
 let logoColumnReady = false
+let dnsCheckColumnReady = false
 
 async function ensureLogoColumn() {
   if (logoColumnReady) return
   await query('ALTER TABLE website_settings ADD COLUMN IF NOT EXISTS logo_url TEXT')
   logoColumnReady = true
+}
+
+async function ensureDnsCheckColumn() {
+  if (dnsCheckColumnReady) return
+  await query(
+    `ALTER TABLE website_settings
+     ADD COLUMN IF NOT EXISTS domain_dns_check_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+  )
+  dnsCheckColumnReady = true
 }
 
 function absoluteMediaUrl(mediaPath) {
@@ -28,6 +39,19 @@ function absoluteMediaUrl(mediaPath) {
 }
 
 export const settingsService = {
+  async isDomainDnsCheckEnabled() {
+    await ensureDnsCheckColumn()
+    const result = await query(
+      `SELECT domain_dns_check_enabled
+       FROM website_settings
+       ORDER BY updated_at DESC NULLS LAST, id ASC
+       LIMIT 1`,
+    )
+    const row = result.rows[0]
+    if (!row) return DEFAULTS.domainDnsCheckEnabled
+    return row.domain_dns_check_enabled ?? DEFAULTS.domainDnsCheckEnabled
+  },
+
   async getModerationSettings() {
     const result = await query(
       `SELECT ai_moderation_enabled, auto_publish_threshold

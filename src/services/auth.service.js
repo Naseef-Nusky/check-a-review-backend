@@ -231,6 +231,11 @@ export const authService = {
     }
 
     const passwordHash = await bcrypt.hash(password, 12)
+    if (accountRole === 'business' && website) {
+      const { domainService } = await import('./domain.service.js')
+      await domainService.assertWebsiteResolves(website)
+    }
+
     await storePendingRegistration({
       email: emailLower,
       passwordHash,

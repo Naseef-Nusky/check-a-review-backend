@@ -362,6 +362,11 @@ export const adminService = {
 
     const validatedCategory = await categoryService.validateSubcategoryName(category)
 
+    if (website) {
+      const { domainService } = await import('./domain.service.js')
+      await domainService.assertWebsiteResolves(website)
+    }
+
     const passwordHash = await bcrypt.hash(password, 12)
     const userResult = await query(
       `INSERT INTO users (email, password_hash, name, role, email_verified)
@@ -597,10 +602,12 @@ export const adminService = {
   async getSettings() {
     const { settingsService } = await import('./settings.service.js')
     const brand = await settingsService.getBrandSettings()
+    await settingsService.isDomainDnsCheckEnabled()
     const result = await query('SELECT * FROM website_settings LIMIT 1')
     const row = result.rows[0] || {}
     return {
       ...row,
+      domain_dns_check_enabled: row.domain_dns_check_enabled ?? true,
       // Prefer media path from DB-backed brand logo so CRM preview stays in sync
       logo_url: brand.logoPath || row.logo_url || null,
     }
@@ -609,10 +616,16 @@ export const adminService = {
   async updateSettings(data) {
     const { settingsService } = await import('./settings.service.js')
     await settingsService.getBrandSettings()
+    await settingsService.isDomainDnsCheckEnabled()
 
     const threshold = data.autoPublishThreshold !== undefined && data.autoPublishThreshold !== null
       ? Math.min(100, Math.max(0, Number(data.autoPublishThreshold)))
       : null
+
+    const dnsCheck =
+      data.domainDnsCheck === undefined || data.domainDnsCheck === null
+        ? null
+        : Boolean(data.domainDnsCheck)
 
     const result = await query(
       `UPDATE website_settings SET
@@ -620,10 +633,11 @@ export const adminService = {
         support_email = COALESCE($2, support_email),
         ai_moderation_enabled = COALESCE($3, ai_moderation_enabled),
         auto_publish_threshold = COALESCE($4, auto_publish_threshold),
+        domain_dns_check_enabled = COALESCE($5, domain_dns_check_enabled),
         email_provider = 'sendgrid',
         updated_at = NOW()
        RETURNING *`,
-      [data.siteName, data.supportEmail, data.aiModeration, threshold],
+      [data.siteName, data.supportEmail, data.aiModeration, threshold, dnsCheck],
     )
     return result.rows[0]
   },

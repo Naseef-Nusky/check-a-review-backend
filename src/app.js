@@ -6,6 +6,7 @@ import helmet from 'helmet'
 import morgan from 'morgan'
 import { env } from './config/env.js'
 import routes from './routes/index.js'
+import seoRoutes from './routes/seo.routes.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { uploadsRoot } from './middleware/upload.js'
 
@@ -83,6 +84,8 @@ function sendApplePayAssociation(_req, res) {
 }
 app.get('/.well-known/apple-developer-merchantid-domain-association', sendApplePayAssociation)
 app.get('/api/apple-pay/domain-association', sendApplePayAssociation)
+
+app.use(seoRoutes)
 
 app.use('/api', routes)
 
