@@ -10,12 +10,16 @@ import widgetRoutes from './widget.routes.js'
 import mediaRoutes from './media.routes.js'
 import teamRoutes from './team.routes.js'
 import domainRoutes from './domain.routes.js'
+import { sendSitemap, sendBusinessSitemap } from './seo.routes.js'
 
 const router = Router()
 
 router.get('/health', (_req, res) => {
   res.json({ success: true, message: 'Check A Review API is running', timestamp: new Date().toISOString() })
 })
+
+router.get('/sitemap.xml', sendSitemap)
+router.get('/business-sitemap.xml', sendBusinessSitemap)
 
 router.use('/auth', authRoutes)
 router.use('/media', mediaRoutes)
