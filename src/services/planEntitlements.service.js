@@ -184,6 +184,7 @@ export async function getEntitlements(businessId) {
       dedicatedCsm: Boolean(plan.dedicatedCsm),
       advancedAnalytics: Boolean(plan.advancedAnalytics),
       optimizedInvites: Boolean(plan.optimizedInvites),
+      canReplyToReviews: Boolean(plan.canReplyToReviews),
     },
     limits: {
       invitationsPerMonth: plan.invitationsPerMonth,
@@ -226,6 +227,19 @@ export async function assertInvitationQuota(businessId) {
     )
   }
   return entitlements
+}
+
+export async function assertCanReplyToReviews(businessId) {
+  await assertPaymentCurrent(businessId)
+  const entitlements = await getEntitlements(businessId)
+  if (entitlements.flags.canReplyToReviews) return entitlements
+
+  const { AppError } = await import('../utils/helpers.js')
+  throw new AppError(
+    'Public replies to reviews are included from Starter. Upgrade to respond to customers on your profile.',
+    403,
+    'REPLY_PLAN',
+  )
 }
 
 export async function assertWidgetAccess(businessId, widgetId) {

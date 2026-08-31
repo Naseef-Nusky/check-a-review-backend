@@ -1,4 +1,4 @@
-export const CATALOG_VERSION = 10
+export const CATALOG_VERSION = 11
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
 export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium']
@@ -35,6 +35,7 @@ function plan({
   dedicatedCsm = false,
   advancedAnalytics = false,
   optimizedInvites = false,
+  canReplyToReviews = false,
   highlighted = false,
   badge = '',
   ctaLabel,
@@ -65,6 +66,7 @@ function plan({
     dedicatedCsm,
     advancedAnalytics,
     optimizedInvites,
+    canReplyToReviews,
     highlighted,
     badge,
     ctaLabel,
@@ -93,9 +95,10 @@ export const PLAN_CATALOG = {
     integrations: 0,
     marketingAssets: false,
     ctaLabel: 'Current plan',
-    description: 'Default plan after signup. Upgrade to send more invitations and embed widgets.',
+    description: 'Default plan after signup. Upgrade to Starter to reply to reviews, send more invitations, and embed widgets.',
     features: [
       'Public business profile (after approval)',
+      'Read customer reviews',
       '10 review invitations per month',
       '1 user',
       '1 domain',
@@ -107,6 +110,7 @@ export const PLAN_CATALOG = {
     tagline: 'Start growing trust',
     monthlyDollars: 99,
     checkout: 'buy',
+    canReplyToReviews: true,
     invitationsPerMonth: 100,
     widgets: 2,
     users: 1,
@@ -119,6 +123,7 @@ export const PLAN_CATALOG = {
     ],
     description: 'One website — for small businesses getting started with reviews.',
     features: [
+      'Public replies to customer reviews',
       '100 review invitations per month',
       '2 widgets to collect reviews and showcase trust',
       '1 user',
@@ -133,6 +138,7 @@ export const PLAN_CATALOG = {
     monthlyDollars: 319,
     checkout: 'trial',
     trialDays: 14,
+    canReplyToReviews: true,
     invitationsPerMonth: 300,
     widgets: 10,
     users: 3,
@@ -158,6 +164,7 @@ export const PLAN_CATALOG = {
     tagline: 'Make feedback your competitive edge',
     monthlyDollars: 799,
     checkout: 'demo',
+    canReplyToReviews: true,
     invitationsPerMonth: 1000,
     widgets: 21,
     users: 10,
@@ -315,6 +322,7 @@ export function buildPricingContentFromCatalog() {
           { label: 'Users', values: { starter: value('starter', 'users'), plus: value('plus', 'users'), premium: value('premium', 'users') } },
           { label: 'Domains', values: { starter: value('starter', 'domains'), plus: value('plus', 'domains'), premium: value('premium', 'domains') } },
           { label: 'Monthly review invitations', values: { starter: value('starter', 'invitationsPerMonth'), plus: value('plus', 'invitationsPerMonth'), premium: value('premium', 'invitationsPerMonth') } },
+          { label: 'Public replies to reviews', values: { starter: true, plus: true, premium: true } },
           { label: 'Widgets', values: { starter: value('starter', 'widgets'), plus: value('plus', 'widgets'), premium: value('premium', 'widgets') } },
         ],
       },

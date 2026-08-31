@@ -7,7 +7,7 @@ import { emailService } from './email.service.js'
 import { businessService } from './business.service.js'
 import { notificationService } from './notification.service.js'
 import { assertBusinessAccess } from './businessAccess.service.js'
-import { assertInvitationQuota } from './planEntitlements.service.js'
+import { assertCanReplyToReviews, assertInvitationQuota } from './planEntitlements.service.js'
 
 async function getBusinessOwner(businessId) {
   const owner = await query(
@@ -371,6 +371,7 @@ export const reviewService = {
     )
     if (review.rows.length === 0) throw new AppError('Review not found', 404)
     await assertBusinessAccess(review.rows[0].business_id, userId)
+    await assertCanReplyToReviews(review.rows[0].business_id)
 
     const existing = review.rows[0]
     const isEdit = Boolean(existing.business_reply)
