@@ -382,8 +382,17 @@ router.get('/subscriptions', async (_req, res, next) => {
 
 router.get('/payments', async (_req, res, next) => {
   try {
-    const payments = await adminService.getPayments()
-    res.json({ success: true, data: payments })
+    const data = await adminService.getPayments()
+    res.json({ success: true, data })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/billing-status', async (_req, res, next) => {
+  try {
+    const data = await adminService.getSquareBillingStatus()
+    res.json({ success: true, data })
   } catch (err) {
     next(err)
   }

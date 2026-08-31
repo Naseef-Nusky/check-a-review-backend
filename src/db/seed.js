@@ -235,14 +235,131 @@ async function seed() {
     `SELECT id FROM users WHERE email = $1 AND role = 'customer'`,
     ['customer@example.com'],
   )
-  if (customerExists.rows.length === 0) {
+  let customerId = customerExists.rows[0]?.id || null
+  if (!customerId) {
     const passwordHash = await bcrypt.hash('Customer@123', 12)
-    await query(
+    const customerResult = await query(
       `INSERT INTO users (email, password_hash, name, role, email_verified)
-       VALUES ('customer@example.com', $1, 'John Doe', 'customer', TRUE)`,
+       VALUES ('customer@example.com', $1, 'John Doe', 'customer', TRUE)
+       RETURNING id`,
       [passwordHash],
     )
+    customerId = customerResult.rows[0].id
     console.log('Sample customer created: customer@example.com')
+  }
+
+  const customer2Exists = await query(
+    `SELECT id FROM users WHERE email = $1 AND role = 'customer'`,
+    ['jane.reviewer@example.com'],
+  )
+  let customer2Id = customer2Exists.rows[0]?.id || null
+  if (!customer2Id) {
+    const passwordHash = await bcrypt.hash('Customer@123', 12)
+    const customerResult = await query(
+      `INSERT INTO users (email, password_hash, name, role, email_verified)
+       VALUES ('jane.reviewer@example.com', $1, 'Jane Smith', 'customer', TRUE)
+       RETURNING id`,
+      [passwordHash],
+    )
+    customer2Id = customerResult.rows[0].id
+    console.log('Sample customer created: jane.reviewer@example.com')
+  } else {
+    customer2Id = customer2Exists.rows[0].id
+  }
+
+  const sampleReviews = [
+    {
+      businessEmail: 'free-plan@example.com',
+      userId: customerId,
+      rating: 5,
+      title: 'Best sourdough in town',
+      content:
+        'Visited on Saturday morning and the croissants were fresh and flaky. Staff were friendly and the coffee was excellent too.',
+      status: 'published',
+      reply: 'Thank you so much for the lovely review! We are glad you enjoyed the croissants and hope to see you again soon.',
+    },
+    {
+      businessEmail: 'starter-plan@example.com',
+      userId: customerId,
+      rating: 4,
+      title: 'Great family photo session',
+      content:
+        'Oak Street Studio made us feel comfortable during our family shoot. The edited photos arrived quickly and looked natural.',
+      status: 'published',
+      reply: 'Thanks John — it was a pleasure working with your family. We appreciate you taking the time to leave a review.',
+    },
+    {
+      businessEmail: 'plus-plan@example.com',
+      userId: customer2Id,
+      rating: 5,
+      title: 'Fast delivery and quality items',
+      content:
+        'Ordered online and received my package within two days. The jacket fit perfectly and the fabric quality was better than expected.',
+      status: 'published',
+      reply: null,
+    },
+    {
+      businessEmail: 'premium-plan@example.com',
+      userId: customer2Id,
+      rating: 5,
+      title: 'Professional and caring team',
+      content:
+        'Riverside Dental explained every step of my appointment clearly. The clinic was clean, on time, and the treatment was painless.',
+      status: 'published',
+      reply: 'Thank you Jane. Our team works hard to make every visit comfortable — we appreciate your trust in Riverside Dental.',
+    },
+  ]
+
+  for (const review of sampleReviews) {
+    if (!review.userId) continue
+
+    const business = await query('SELECT id, name FROM businesses WHERE email = $1 LIMIT 1', [
+      review.businessEmail,
+    ])
+    if (!business.rows.length) continue
+    const businessId = business.rows[0].id
+
+    const existing = await query(
+      'SELECT id FROM reviews WHERE business_id = $1 AND user_id = $2 LIMIT 1',
+      [businessId, review.userId],
+    )
+
+    let reviewId = existing.rows[0]?.id || null
+    if (reviewId) {
+      await query(
+        `UPDATE reviews
+         SET rating = $1,
+             title = $2,
+             content = $3,
+             status = $4,
+             business_reply = $5,
+             business_reply_at = CASE WHEN $5 IS NOT NULL THEN NOW() ELSE NULL END,
+             updated_at = NOW()
+         WHERE id = $6`,
+        [review.rating, review.title, review.content, review.status, review.reply, reviewId],
+      )
+    } else {
+      const inserted = await query(
+        `INSERT INTO reviews (
+           business_id, user_id, rating, title, content, status, business_reply, business_reply_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7 IS NOT NULL THEN NOW() ELSE NULL END)
+         RETURNING id`,
+        [
+          businessId,
+          review.userId,
+          review.rating,
+          review.title,
+          review.content,
+          review.status,
+          review.reply,
+        ],
+      )
+      reviewId = inserted.rows[0].id
+    }
+
+    console.log(
+      `Review seeded: ${review.title} on ${business.rows[0].name}${review.reply ? ' (with reply)' : ''}`,
+    )
   }
 
   console.log('Seed completed.')

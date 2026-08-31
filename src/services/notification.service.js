@@ -66,4 +66,11 @@ export const notificationService = {
   async markAllAsRead(userId) {
     await query('UPDATE notifications SET read = TRUE WHERE user_id = $1', [userId])
   },
+
+  async markAsReadByType(userId, type) {
+    await query(
+      'UPDATE notifications SET read = TRUE WHERE user_id = $1 AND type = $2 AND read = FALSE',
+      [userId, type],
+    )
+  },
 }

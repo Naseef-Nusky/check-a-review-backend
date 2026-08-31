@@ -11,11 +11,33 @@ let crmRolesReady = false
 export const adminService = {
   async getDashboardStats() {
     await ensureBusinessStatusColumn()
-    const [users, businesses, reviews, revenue, flagged, pendingBusinesses, revenueCurrencyRow] = await Promise.all([
+    await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT TRUE`)
+    const { squareService } = await import('./square.service.js')
+    const [
+      users,
+      businesses,
+      reviews,
+      revenue,
+      testRevenue,
+      liveRevenue,
+      flagged,
+      pendingBusinesses,
+      revenueCurrencyRow,
+    ] = await Promise.all([
       query(`SELECT COUNT(*) FROM users WHERE role = 'customer'`),
       query(`SELECT COUNT(*) FROM businesses WHERE status = 'published'`),
       query('SELECT COUNT(*) FROM reviews'),
       query(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'succeeded'`),
+      query(
+        `SELECT COALESCE(SUM(amount), 0) as total
+         FROM payments
+         WHERE status = 'succeeded' AND COALESCE(is_test, TRUE) = TRUE`,
+      ),
+      query(
+        `SELECT COALESCE(SUM(amount), 0) as total
+         FROM payments
+         WHERE status = 'succeeded' AND is_test = FALSE`,
+      ),
       query(`SELECT COUNT(*) FROM reviews WHERE status = 'pending'`),
       query(`SELECT COUNT(*) FROM businesses WHERE status = 'pending'`),
       query(
@@ -36,9 +58,12 @@ export const adminService = {
       totalBusinesses: parseInt(businesses.rows[0].count, 10),
       totalReviews: parseInt(reviews.rows[0].count, 10),
       totalRevenue: parseInt(revenue.rows[0].total, 10),
+      testRevenue: parseInt(testRevenue.rows[0].total, 10),
+      liveRevenue: parseInt(liveRevenue.rows[0].total, 10),
       revenueCurrency,
       flaggedReviews: parseInt(flagged.rows[0].count, 10),
       pendingBusinesses: parseInt(pendingBusinesses.rows[0].count, 10),
+      ...squareService.getBillingStatus(),
     }
   },
 
@@ -564,6 +589,8 @@ export const adminService = {
   },
 
   async getPayments() {
+    const { squareService } = await import('./square.service.js')
+    await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT TRUE`)
     const result = await query(
       `SELECT p.id,
               p.business_id,
@@ -572,16 +599,21 @@ export const adminService = {
               p.currency,
               p.plan,
               p.status,
+              p.is_test,
               p.created_at,
               b.name as business_name
        FROM payments p
        JOIN businesses b ON b.id = p.business_id
        ORDER BY p.created_at DESC`,
     )
-    return result.rows
+    return {
+      payments: result.rows,
+      ...squareService.getBillingStatus(),
+    }
   },
 
   async getBusinessPayments(businessId) {
+    await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT TRUE`)
     const result = await query(
       `SELECT p.id,
               p.business_id,
@@ -590,6 +622,7 @@ export const adminService = {
               p.currency,
               p.plan,
               p.status,
+              p.is_test,
               p.created_at
        FROM payments p
        WHERE p.business_id = $1
@@ -597,6 +630,11 @@ export const adminService = {
       [businessId],
     )
     return result.rows
+  },
+
+  async getSquareBillingStatus() {
+    const { squareService } = await import('./square.service.js')
+    return squareService.getBillingStatus()
   },
 
   async getSettings() {
@@ -689,7 +727,7 @@ export const adminService = {
     const { squareService } = await import('./square.service.js')
     const plans = await billingPlansService.list()
     return {
-      squareConfigured: squareService.hasCredentials(),
+      ...squareService.getBillingStatus(),
       plans,
     }
   },

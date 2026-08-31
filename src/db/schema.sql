@@ -306,6 +306,7 @@ ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_customer_id VARCHAR(25
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_subscription_id VARCHAR(255);
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_plan VARCHAR(20);
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id VARCHAR(255);
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Insert default website settings
 INSERT INTO website_settings (site_name, support_email)

@@ -31,6 +31,7 @@ async function ensureSquareColumns() {
   await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_grace_ended_notice_at TIMESTAMPTZ`)
   await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id VARCHAR(255)`)
   await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'GBP'`)
+  await query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT TRUE`)
   await query(`ALTER TABLE subscriptions DROP COLUMN IF EXISTS stripe_customer_id`)
   await query(`ALTER TABLE subscriptions DROP COLUMN IF EXISTS stripe_subscription_id`)
   await query(`ALTER TABLE payments DROP COLUMN IF EXISTS stripe_payment_intent_id`)
@@ -691,11 +692,11 @@ export const subscriptionService = {
     )
 
     const failed = await query(
-      `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status)
-       VALUES ($1, $2, $3, $4, $5, 'failed')
+      `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status, is_test)
+       VALUES ($1, $2, $3, $4, $5, 'failed', $6)
        ON CONFLICT (square_payment_id) DO NOTHING
        RETURNING id`,
-      [row.business_id, `failed-${invoiceId}`, 0, 'GBP', row.plan],
+      [row.business_id, `failed-${invoiceId}`, 0, 'GBP', row.plan, squareService.isTestMode()],
     )
 
     const email = await ownerEmailForBusiness(row.business_id)
@@ -738,11 +739,11 @@ export const subscriptionService = {
         [row.business_id],
       )
       const failed = await query(
-        `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status)
-         VALUES ($1, $2, $3, $4, $5, 'failed')
+        `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status, is_test)
+         VALUES ($1, $2, $3, $4, $5, 'failed', $6)
          ON CONFLICT (square_payment_id) DO NOTHING
          RETURNING id`,
-        [row.business_id, paymentId, amount, currency, note?.plan || row.pending_plan || row.plan],
+        [row.business_id, paymentId, amount, currency, note?.plan || row.pending_plan || row.plan, squareService.isTestMode()],
       )
       const email = await ownerEmailForBusiness(row.business_id)
       if (failed.rows[0] && email && row.plan !== 'free') {
@@ -790,11 +791,11 @@ export const subscriptionService = {
 
   async recordSuccessfulCharge({ businessId, paymentId, amount, currency, plan, nextBillingDate }) {
     const inserted = await query(
-      `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status)
-       VALUES ($1, $2, $3, $4, $5, 'succeeded')
+      `INSERT INTO payments (business_id, square_payment_id, amount, currency, plan, status, is_test)
+       VALUES ($1, $2, $3, $4, $5, 'succeeded', $6)
        ON CONFLICT (square_payment_id) DO NOTHING
        RETURNING id`,
-      [businessId, paymentId, amount, currency || 'GBP', plan || 'subscription'],
+      [businessId, paymentId, amount, currency || 'GBP', plan || 'subscription', squareService.isTestMode()],
     )
     if (!inserted.rows[0]) return
 

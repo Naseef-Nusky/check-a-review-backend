@@ -106,9 +106,25 @@ export const squareService = {
       applicationId: env.SQUARE_APPLICATION_ID || '',
       locationId: env.SQUARE_LOCATION_ID || '',
       environment: isSandbox ? 'sandbox' : 'production',
+      currency: String(env.SQUARE_CURRENCY || 'GBP').toUpperCase(),
       cardPaymentsEnabled: Boolean(
         this.hasCredentials() && env.SQUARE_APPLICATION_ID && !/your_square|change-me|^$/i.test(env.SQUARE_APPLICATION_ID),
       ),
+    }
+  },
+
+  isTestMode() {
+    return this.getClientConfig().environment !== 'production'
+  },
+
+  getBillingStatus() {
+    const config = this.getClientConfig()
+    return {
+      squareConfigured: this.hasCredentials(),
+      squareEnvironment: config.environment,
+      paymentsAreTest: config.environment !== 'production',
+      currency: config.currency,
+      cardPaymentsEnabled: config.cardPaymentsEnabled,
     }
   },
 
