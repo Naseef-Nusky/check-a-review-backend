@@ -742,4 +742,62 @@ export const emailService = {
       },
     })
   },
+
+  async sendContactSalesForm({
+    firstName,
+    lastName,
+    email,
+    websiteUrl,
+    country,
+    phone,
+    companyName,
+    jobTitle,
+    message,
+    source = 'website',
+  }) {
+    const supportEmail = env.SALES_EMAIL || env.SENDGRID_FROM_EMAIL || 'info@checkareview.com'
+    const fullName = `${firstName} ${lastName}`.trim()
+    const safeName = escapeHtml(fullName)
+    const safeEmail = escapeHtml(email)
+    const safeWebsite = escapeHtml(websiteUrl)
+    const safeCountry = escapeHtml(country)
+    const safePhone = escapeHtml(phone)
+    const safeCompany = escapeHtml(companyName)
+    const safeJobTitle = escapeHtml(jobTitle)
+    const safeMessage = escapeHtml(message).replaceAll('\n', '<br />')
+    const safeSource = escapeHtml(source)
+
+    await sendTemplatedEmail({
+      to: supportEmail,
+      subject: `[Contact Sales] ${companyName} — ${fullName}`,
+      template: {
+        eyebrow: 'Contact sales form',
+        title: 'New sales enquiry',
+        intro: `<strong>${safeName}</strong> from <strong>${safeCompany}</strong> submitted a contact sales form.`,
+        body: `
+          <p style="margin:0 0 8px 0;"><strong>Business email:</strong> ${safeEmail}</p>
+          <p style="margin:0 0 8px 0;"><strong>Company:</strong> ${safeCompany}</p>
+          <p style="margin:0 0 8px 0;"><strong>Job title:</strong> ${safeJobTitle}</p>
+          <p style="margin:0 0 8px 0;"><strong>Website:</strong> ${safeWebsite}</p>
+          <p style="margin:0 0 8px 0;"><strong>Country:</strong> ${safeCountry}</p>
+          <p style="margin:0 0 8px 0;"><strong>Phone:</strong> ${safePhone}</p>
+          <p style="margin:0 0 8px 0;"><strong>Source:</strong> ${safeSource}</p>
+          <p style="margin:0;white-space:normal;"><strong>Message:</strong><br />${safeMessage}</p>
+        `,
+        footerNote: `Reply directly to ${safeEmail} to respond.`,
+      },
+    })
+
+    await sendTemplatedEmail({
+      to: email,
+      subject: 'We received your enquiry — Check A Review',
+      template: {
+        eyebrow: 'Sales',
+        title: 'Thanks for contacting us',
+        intro: `Hi ${escapeHtml(firstName)}, we received your message and our team will get back to you shortly.`,
+        body: `<p style="margin:0;">${safeMessage}</p>`,
+        footerNote: 'This is an automated confirmation. Please do not reply to this email.',
+      },
+    })
+  },
 }
