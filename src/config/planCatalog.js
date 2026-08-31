@@ -1,4 +1,4 @@
-export const CATALOG_VERSION = 8
+export const CATALOG_VERSION = 10
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
 export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium']
@@ -70,7 +70,7 @@ function plan({
     ctaLabel,
     notes,
     features,
-    priceLabel: monthlyDollars > 0 ? `$${monthlyDollars}` : 'Custom',
+    priceLabel: monthlyDollars > 0 ? `£${monthlyDollars}` : 'Custom',
     periodLabel: monthlyDollars > 0
       ? perDomain
         ? '/month, per domain'
@@ -123,7 +123,6 @@ export const PLAN_CATALOG = {
       '2 widgets to collect reviews and showcase trust',
       '1 user',
       '1 domain',
-      '15 integrations into marketing and eCommerce tools',
       'Power your ads with Check A Review marketing assets',
     ],
   }),
@@ -149,7 +148,6 @@ export const PLAN_CATALOG = {
       '10 widgets to collect reviews and showcase TrustScore',
       '3 users',
       'Up to 3 domains',
-      'All integrations',
       'Power your ads with Check A Review marketing assets',
       'Match your public profile to your brand',
     ],
@@ -175,7 +173,6 @@ export const PLAN_CATALOG = {
       '21 widgets to showcase TrustScore and testimonials',
       '10 users',
       'Unlimited domains',
-      'All integrations',
       'Power your ads with Check A Review marketing assets',
       'Match your public profile to your brand',
       'Dedicated Customer Success Manager',
@@ -289,7 +286,7 @@ export function buildPricingContentFromCatalog() {
     heroSubtitle:
       'Plans built like a modern review platform: collect feedback, showcase TrustScore, and convert trust into demand.',
     billingNote:
-      'Paid plans are priced and billed monthly in USD.',
+      'Paid plans are priced and billed monthly in GBP.',
     trustBadge: '14-day free trial on Plus',
     logos: [],
     steps: [
@@ -319,7 +316,6 @@ export function buildPricingContentFromCatalog() {
           { label: 'Domains', values: { starter: value('starter', 'domains'), plus: value('plus', 'domains'), premium: value('premium', 'domains') } },
           { label: 'Monthly review invitations', values: { starter: value('starter', 'invitationsPerMonth'), plus: value('plus', 'invitationsPerMonth'), premium: value('premium', 'invitationsPerMonth') } },
           { label: 'Widgets', values: { starter: value('starter', 'widgets'), plus: value('plus', 'widgets'), premium: value('premium', 'widgets') } },
-          { label: 'Integrations', values: { starter: '15', plus: 'All', premium: 'All' } },
         ],
       },
       {
@@ -343,7 +339,7 @@ export function buildPricingContentFromCatalog() {
     faqs: [
       {
         question: 'Are prices billed monthly or annually?',
-        answer: 'Prices are shown per month in USD and billed monthly.',
+        answer: 'Prices are shown per month in GBP and billed monthly.',
       },
       {
         question: 'Does Plus include a free trial?',

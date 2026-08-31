@@ -32,7 +32,7 @@ export const env = {
   SQUARE_STARTER_AMOUNT_CENTS: process.env.SQUARE_STARTER_AMOUNT_CENTS || '9900',
   SQUARE_PLUS_AMOUNT_CENTS: process.env.SQUARE_PLUS_AMOUNT_CENTS || '31900',
   SQUARE_PREMIUM_AMOUNT_CENTS: process.env.SQUARE_PREMIUM_AMOUNT_CENTS || '79900',
-  SQUARE_CURRENCY: process.env.SQUARE_CURRENCY || 'USD',
+  SQUARE_CURRENCY: process.env.SQUARE_CURRENCY || 'GBP',
   SALES_EMAIL: process.env.SALES_EMAIL || process.env.SENDGRID_FROM_EMAIL || 'info@checkareview.com',
   AI_PROVIDER: process.env.AI_PROVIDER || 'gemini',
   AI_API_KEY: process.env.AI_API_KEY || '',
