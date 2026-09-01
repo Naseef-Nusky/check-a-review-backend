@@ -2,5 +2,7 @@ node_modules/
 dist/
 .env
 uploads/
+data/wp-uploads/*
+!data/wp-uploads/.gitkeep
 *.log
 .DS_Store

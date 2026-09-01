@@ -218,6 +218,14 @@ export async function assertInvitationQuota(businessId) {
   const entitlements = await getEntitlements(businessId)
   const limit = entitlements.limits.invitationsPerMonth
   if (isUnlimited(limit)) return entitlements
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    const { AppError } = await import('../utils/helpers.js')
+    throw new AppError(
+      'Review invitations are not available on your current plan. Upgrade to Starter or above to invite customers.',
+      403,
+      'INVITATION_PLAN',
+    )
+  }
   if (entitlements.usage.invitationsThisMonth >= limit) {
     const { AppError } = await import('../utils/helpers.js')
     throw new AppError(
@@ -236,7 +244,7 @@ export async function assertCanReplyToReviews(businessId) {
 
   const { AppError } = await import('../utils/helpers.js')
   throw new AppError(
-    'Public replies to reviews are included from Starter. Upgrade to respond to customers on your profile.',
+    'Public replies to reviews are not available on your current plan. Upgrade to respond to customers on your profile.',
     403,
     'REPLY_PLAN',
   )

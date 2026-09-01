@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { OAuth2Client } from 'google-auth-library'
+import { createRequire } from 'module'
 import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { AppError, slugify, omitPassword } from '../utils/helpers.js'
@@ -13,6 +14,24 @@ import {
   ensureTokenVersionColumn,
   hashSecret,
 } from '../utils/session.js'
+
+const require = createRequire(import.meta.url)
+const wpHasher = require('wordpress-hash-node')
+
+function isWordpressPasswordHash(hash) {
+  return /^\$P\$/.test(hash) || /^\$wp\$2y\$/.test(hash)
+}
+
+async function verifyPassword(password, hash) {
+  if (!hash) return false
+  if (hash.startsWith('$2')) {
+    return bcrypt.compare(password, hash)
+  }
+  if (isWordpressPasswordHash(hash)) {
+    return wpHasher.CheckPassword(password, hash)
+  }
+  return false
+}
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(env.GOOGLE_CLIENT_ID)
@@ -306,8 +325,16 @@ export const authService = {
       throw new AppError('Invalid email or password', 401)
     }
 
-    const valid = await bcrypt.compare(password, user.password_hash)
+    const valid = await verifyPassword(password, user.password_hash)
     if (!valid) throw new AppError('Invalid email or password', 401)
+
+    if (isWordpressPasswordHash(user.password_hash)) {
+      const passwordHash = await bcrypt.hash(password, 12)
+      await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [
+        passwordHash,
+        user.id,
+      ])
+    }
 
     if (!user.email_verified) {
       throw new AppError(

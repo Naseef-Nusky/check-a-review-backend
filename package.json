@@ -9,6 +9,9 @@
     "dev": "nodemon src/index.js",
     "db:migrate": "node src/db/migrate.js",
     "db:seed": "node src/db/seed.js",
+    "db:import-wp": "node scripts/import-wordpress-sql.js",
+    "db:import-wp-logos": "node scripts/import-wordpress-logos.js",
+    "db:import-wp-all": "node scripts/import-wordpress-sql.js && node scripts/import-wordpress-logos.js",
     "sitemap:generate": "node scripts/generate-sitemap.js",
     "sitemap:generate:business": "node scripts/generate-business-sitemap.js",
     "sitemap:generate:all": "node scripts/generate-sitemap.js && node scripts/generate-business-sitemap.js"
@@ -33,7 +36,8 @@
     "multer": "^2.2.0",
     "pg": "^8.16.3",
     "square": "^45.0.1",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "wordpress-hash-node": "^1.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
