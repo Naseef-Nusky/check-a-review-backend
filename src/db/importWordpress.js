@@ -467,6 +467,15 @@ export async function importWordpressSql(filePath, options = {}) {
     }
 
     if (!dryRun) await client.query('COMMIT')
+
+    if (!dryRun && businessIdMap.size > 0) {
+      const { businessService } = await import('../services/business.service.js')
+      const uniqueBusinessIds = [...new Set(businessIdMap.values())]
+      for (const businessId of uniqueBusinessIds) {
+        await businessService.updateBusinessStats(businessId)
+      }
+      stats.statsRecalculated = uniqueBusinessIds.length
+    }
   } catch (error) {
     if (!dryRun) await client.query('ROLLBACK')
     throw error

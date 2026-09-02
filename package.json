@@ -12,6 +12,7 @@
     "db:import-wp": "node scripts/import-wordpress-sql.js",
     "db:import-wp-logos": "node scripts/import-wordpress-logos.js",
     "db:import-wp-all": "node scripts/import-wordpress-sql.js && node scripts/import-wordpress-logos.js",
+    "db:recalculate-stats": "node scripts/recalculate-business-stats.js",
     "sitemap:generate": "node scripts/generate-sitemap.js",
     "sitemap:generate:business": "node scripts/generate-business-sitemap.js",
     "sitemap:generate:all": "node scripts/generate-sitemap.js && node scripts/generate-business-sitemap.js"
