@@ -24,6 +24,15 @@ router.get('/search', async (req, res, next) => {
   }
 })
 
+router.get('/featured', async (_req, res, next) => {
+  try {
+    const result = await businessService.getFeatured()
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/categories', async (_req, res, next) => {
   try {
     const categories = await businessService.getCategories()

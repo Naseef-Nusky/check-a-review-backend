@@ -27,8 +27,12 @@ export async function ensureBusinessMembersTable() {
   `)
 
   await query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS business_members_one_active_user
-    ON business_members (user_id)
+    DROP INDEX IF EXISTS business_members_one_active_user
+  `)
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS business_members_one_active_user_per_business
+    ON business_members (business_id, user_id)
     WHERE user_id IS NOT NULL AND status = 'active'
   `)
 
@@ -41,6 +45,7 @@ export async function ensureBusinessMembersTable() {
       SELECT 1 FROM business_members m
       WHERE m.business_id = b.id AND m.role = 'owner' AND m.status = 'active'
     )
+    ON CONFLICT (business_id, email) DO NOTHING
   `)
 
   membersTableReady = true

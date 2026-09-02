@@ -14,6 +14,16 @@ const DEFAULTS = {
 
 let logoColumnReady = false
 let dnsCheckColumnReady = false
+let featuredColumnReady = false
+
+async function ensureFeaturedColumn() {
+  if (featuredColumnReady) return
+  await query(
+    `ALTER TABLE website_settings
+     ADD COLUMN IF NOT EXISTS featured_business_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  )
+  featuredColumnReady = true
+}
 
 async function ensureLogoColumn() {
   if (logoColumnReady) return
@@ -128,5 +138,17 @@ export const settingsService = {
   async removeSiteLogo() {
     await mediaService.deleteImage(MEDIA_KIND.SITE_LOGO)
     return this.updateSiteLogo(null)
+  },
+
+  async getFeaturedBusinessIds() {
+    await ensureFeaturedColumn()
+    const result = await query(
+      `SELECT featured_business_ids
+       FROM website_settings
+       ORDER BY updated_at DESC NULLS LAST, id ASC
+       LIMIT 1`,
+    )
+    const raw = result.rows[0]?.featured_business_ids
+    return Array.isArray(raw) ? raw.map(String).filter(Boolean) : []
   },
 }

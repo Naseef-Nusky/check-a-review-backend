@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS website_settings (
   auto_publish_threshold INTEGER DEFAULT 85,
   email_provider VARCHAR(20) DEFAULT 'sendgrid',
   domain_dns_check_enabled BOOLEAN DEFAULT TRUE,
+  featured_business_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -198,8 +199,8 @@ CREATE TABLE IF NOT EXISTS business_members (
   UNIQUE (business_id, email)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS business_members_one_active_user
-  ON business_members (user_id)
+CREATE UNIQUE INDEX IF NOT EXISTS business_members_one_active_user_per_business
+  ON business_members (business_id, user_id)
   WHERE user_id IS NOT NULL AND status = 'active';
 
 -- Domains / websites managed per business (plan-limited)

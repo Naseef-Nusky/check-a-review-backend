@@ -135,9 +135,34 @@ router.get('/businesses/:id', async (req, res, next) => {
   }
 })
 
-router.patch('/businesses/:id', async (_req, res, next) => {
-  next(new AppError('Business details cannot be edited in the CRM', 403))
-})
+router.patch(
+  '/businesses/:id',
+  [
+    body('name').optional().trim().notEmpty().withMessage('Business name cannot be empty'),
+    body('category').optional().trim().notEmpty().withMessage('Category cannot be empty'),
+    body('owner_email').optional().isEmail().withMessage('Owner email must be valid'),
+    body('email').optional({ nullable: true }).isEmail().withMessage('Public email must be valid'),
+    body('website').optional({ nullable: true }).isString().withMessage('Website must be a string'),
+    body('phone').optional({ nullable: true }).isString().withMessage('Phone must be a string'),
+    body('description').optional({ nullable: true }).isString().withMessage('Description must be a string'),
+    body('address').optional({ nullable: true }).isString().withMessage('Address must be a string'),
+    body('owner_name').optional({ nullable: true }).isString().withMessage('Owner name must be a string'),
+    body('plan').optional().isIn(['free', 'starter', 'plus', 'premium']).withMessage('Invalid plan'),
+    body('subscription_status')
+      .optional()
+      .isIn(['active', 'cancelled', 'past_due', 'trialing'])
+      .withMessage('Invalid subscription status'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const business = await adminService.updateBusiness(req.params.id, req.body)
+      res.json({ success: true, data: business })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
 
 router.delete('/businesses/:id', async (req, res, next) => {
   try {
@@ -296,15 +321,25 @@ router.post('/businesses/:id/logo', (req, res, next) => {
     }
     try {
       if (!req.file?.buffer) throw new AppError('Please upload a logo image (PNG, JPG, or WEBP).', 400)
-      const business = await adminService.setBusinessLogo(req.params.id, {
+      await adminService.setBusinessLogo(req.params.id, {
         buffer: req.file.buffer,
         mimeType: req.file.mimetype,
       })
+      const business = await adminService.getBusinessById(req.params.id)
       res.json({ success: true, data: business })
     } catch (error) {
       next(error)
     }
   })
+})
+
+router.delete('/businesses/:id/logo', async (req, res, next) => {
+  try {
+    const business = await adminService.removeBusinessLogo(req.params.id)
+    res.json({ success: true, data: business })
+  } catch (err) {
+    next(err)
+  }
 })
 
 router.get('/reviews', async (_req, res, next) => {

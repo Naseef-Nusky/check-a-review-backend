@@ -641,14 +641,63 @@ export const adminService = {
     const { settingsService } = await import('./settings.service.js')
     const brand = await settingsService.getBrandSettings()
     await settingsService.isDomainDnsCheckEnabled()
+    const featuredBusinessIds = await settingsService.getFeaturedBusinessIds()
     const result = await query('SELECT * FROM website_settings LIMIT 1')
     const row = result.rows[0] || {}
     return {
       ...row,
       domain_dns_check_enabled: row.domain_dns_check_enabled ?? true,
+      featured_business_ids: featuredBusinessIds,
       // Prefer media path from DB-backed brand logo so CRM preview stays in sync
       logo_url: brand.logoPath || row.logo_url || null,
     }
+  },
+
+  async setFeaturedBusinesses(ids) {
+    const { settingsService } = await import('./settings.service.js')
+    const { ensureBusinessStatusColumn } = await import('./business.service.js')
+    await ensureBusinessStatusColumn()
+    await settingsService.getFeaturedBusinessIds()
+
+    const list = (Array.isArray(ids) ? ids : []).map(String).filter(Boolean)
+    if (list.length > 4) {
+      const { AppError } = await import('../utils/helpers.js')
+      throw new AppError('Choose up to 4 businesses for the homepage', 400)
+    }
+    const normalized = [...new Set(list)]
+    if (normalized.length !== list.length) {
+      const { AppError } = await import('../utils/helpers.js')
+      throw new AppError('Each featured slot must be a different business', 400)
+    }
+
+    for (const id of normalized) {
+      const found = await query(
+        `SELECT id FROM businesses WHERE id = $1 AND status = 'published'`,
+        [id],
+      )
+      if (found.rows.length === 0) {
+        const { AppError } = await import('../utils/helpers.js')
+        throw new AppError('Featured businesses must be published listings', 400)
+      }
+    }
+
+    const existing = await query('SELECT id FROM website_settings ORDER BY id ASC LIMIT 1')
+    if (existing.rows.length === 0) {
+      await query(
+        `INSERT INTO website_settings (site_name, support_email, featured_business_ids)
+         VALUES ('Check A Review', 'support@checkareview.com', $1::jsonb)`,
+        [JSON.stringify(normalized)],
+      )
+    } else {
+      await query(
+        `UPDATE website_settings
+         SET featured_business_ids = $1::jsonb, updated_at = NOW()
+         WHERE id = $2`,
+        [JSON.stringify(normalized), existing.rows[0].id],
+      )
+    }
+
+    return normalized
   },
 
   async updateSettings(data) {
@@ -665,6 +714,10 @@ export const adminService = {
         ? null
         : Boolean(data.domainDnsCheck)
 
+    if (data.featuredBusinessIds !== undefined) {
+      await this.setFeaturedBusinesses(data.featuredBusinessIds)
+    }
+
     const result = await query(
       `UPDATE website_settings SET
         site_name = COALESCE($1, site_name),
@@ -677,7 +730,7 @@ export const adminService = {
        RETURNING *`,
       [data.siteName, data.supportEmail, data.aiModeration, threshold, dnsCheck],
     )
-    return result.rows[0]
+    return this.getSettings()
   },
 
   async updateSiteLogo(logoUrl) {
@@ -702,11 +755,22 @@ export const adminService = {
       buffer,
     })
     const logoUrl = businessLogoPublicPath(businessId)
-    const result = await query(
+    await query(
       `UPDATE businesses SET logo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
       [logoUrl, businessId],
     )
-    return result.rows[0]
+    return this.getBusinessById(businessId)
+  },
+
+  async removeBusinessLogo(businessId) {
+    const { MEDIA_KIND, mediaService } = await import('./media.service.js')
+    await this.getBusinessById(businessId)
+    await mediaService.deleteImage(MEDIA_KIND.BUSINESS_LOGO, businessId)
+    await query(
+      `UPDATE businesses SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+      [businessId],
+    )
+    return this.getBusinessById(businessId)
   },
 
   async removeSiteLogo() {

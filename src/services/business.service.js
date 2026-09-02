@@ -87,6 +87,33 @@ export const businessService = {
     return { businesses: result.rows, total, page, limit }
   },
 
+  async getFeatured() {
+    await ensureBusinessStatusColumn()
+    const { settingsService } = await import('./settings.service.js')
+    const featuredIds = await settingsService.getFeaturedBusinessIds()
+
+    if (featuredIds.length === 0) {
+      return this.search({ page: 1, limit: 4, offset: 0 })
+    }
+
+    const result = await query(
+      `SELECT b.*, s.plan as subscription_plan
+       FROM businesses b
+       LEFT JOIN subscriptions s ON s.business_id = b.id
+       WHERE b.id = ANY($1::uuid[]) AND b.status = 'published'
+       ORDER BY array_position($1::uuid[], b.id)`,
+      [featuredIds],
+    )
+
+    return {
+      businesses: result.rows,
+      total: result.rows.length,
+      page: 1,
+      limit: 4,
+      curated: true,
+    }
+  },
+
   async getBySlugOrId(identifier, { includeUnpublished = false } = {}) {
     await ensureBusinessStatusColumn()
     const result = await query(

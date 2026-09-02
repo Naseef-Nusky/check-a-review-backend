@@ -36,7 +36,7 @@ export const env = {
   SALES_EMAIL: process.env.SALES_EMAIL || process.env.SENDGRID_FROM_EMAIL || 'info@checkareview.com',
   AI_PROVIDER: process.env.AI_PROVIDER || 'gemini',
   AI_API_KEY: process.env.AI_API_KEY || '',
-  AI_MODEL: process.env.AI_MODEL || 'gemini-flash-latest',
+  AI_MODEL: process.env.AI_MODEL || 'gemini-3.5-flash-lite',
   AI_API_URL: process.env.AI_API_URL || 'https://api.openai.com/v1',
   AI_AUTO_PUBLISH_THRESHOLD: parseInt(process.env.AI_AUTO_PUBLISH_THRESHOLD || '85', 10),
   ADMIN_EMAIL:
