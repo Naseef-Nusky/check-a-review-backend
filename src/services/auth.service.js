@@ -195,9 +195,26 @@ async function createBusinessForUser(user, { category, website, phone, descripti
   const existingBiz = await query('SELECT id FROM businesses WHERE user_id = $1', [user.id])
   if (existingBiz.rows.length > 0) return
 
+  const addressLine = String(description || '')
+    .split('\n')
+    .find((line) => line.startsWith('Address: '))
+  const postalLine = String(description || '')
+    .split('\n')
+    .find((line) => line.startsWith('ZIP / Postal code: '))
+  const locationLine = String(description || '')
+    .split('\n')
+    .find((line) => line.startsWith('Location: '))
+
+  const addressValue = (addressLine || '').replace(/^Address:\s*/, '').trim()
+  const postalValue = (postalLine || '').replace(/^ZIP \/ Postal code:\s*/, '').trim()
+  const locationValue = (locationLine || '').replace(/^Location:\s*/, '').trim()
+  const fullAddress = [addressValue, postalValue && postalValue !== '—' ? postalValue : '', locationValue]
+    .filter(Boolean)
+    .join(', ')
+
   const bizResult = await query(
-    `INSERT INTO businesses (user_id, name, slug, category, email, website, phone, description, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending') RETURNING *`,
+    `INSERT INTO businesses (user_id, name, slug, category, email, website, phone, description, address, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') RETURNING *`,
     [
       user.id,
       user.name,
@@ -207,6 +224,7 @@ async function createBusinessForUser(user, { category, website, phone, descripti
       website || null,
       phone || null,
       description || null,
+      fullAddress || null,
     ],
   )
   await query(`INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'free')`, [

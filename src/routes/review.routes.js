@@ -3,6 +3,8 @@ import { body } from 'express-validator'
 import { validate } from '../middleware/validate.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { reviewService } from '../services/review.service.js'
+import { query } from '../db/pool.js'
+import { notificationService } from '../services/notification.service.js'
 
 const router = Router()
 
@@ -132,6 +134,70 @@ router.post(
     try {
       const review = await reviewService.reply(req.params.id, req.user.id, req.body.reply)
       res.json({ success: true, data: review })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// ── Review Reports ─────────────────────────────────────────────────────────
+router.post(
+  '/:id/report',
+  [
+    body('reason').trim().notEmpty().withMessage('Reason is required'),
+    body('details').optional().trim(),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      // Ensure table exists
+      await query(`
+        CREATE TABLE IF NOT EXISTS review_reports (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          review_id UUID NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+          reporter_name TEXT,
+          reporter_email TEXT,
+          reason TEXT NOT NULL,
+          details TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      // Get review info for notification
+      const reviewRow = await query(
+        `SELECT r.id, r.title, b.name AS business_name
+         FROM reviews r
+         LEFT JOIN businesses b ON b.id = r.business_id
+         WHERE r.id = $1`,
+        [req.params.id],
+      )
+      if (reviewRow.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Review not found' })
+      }
+      const rev = reviewRow.rows[0]
+
+      const result = await query(
+        `INSERT INTO review_reports (review_id, reporter_name, reporter_email, reason, details)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [
+          req.params.id,
+          req.body.reporterName || null,
+          req.body.reporterEmail || null,
+          req.body.reason,
+          req.body.details || null,
+        ],
+      )
+
+      // Notify all CRM staff
+      await notificationService.notifyCrmStaff(
+        'Review reported',
+        `A review "${rev.title || 'Untitled'}" for "${rev.business_name || 'a business'}" has been reported: ${req.body.reason}`,
+        'review_report',
+        `/reviews`,
+      )
+
+      res.status(201).json({ success: true, data: result.rows[0] })
     } catch (err) {
       next(err)
     }

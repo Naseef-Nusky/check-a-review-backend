@@ -7,6 +7,7 @@ import { reviewService } from '../services/review.service.js'
 import { businessService } from '../services/business.service.js'
 import { AppError } from '../utils/helpers.js'
 import { logoUploadMemory } from '../middleware/upload.js'
+import { query as dbQuery } from '../db/pool.js'
 
 const router = Router()
 
@@ -589,6 +590,71 @@ router.post('/billing-plans/sync-all', async (_req, res, next) => {
   try {
     const plans = await adminService.syncAllBillingPlans()
     res.json({ success: true, data: plans })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Review Reports ─────────────────────────────────────────────────────────
+router.get('/reports', async (_req, res, next) => {
+  try {
+    await dbQuery(`
+      CREATE TABLE IF NOT EXISTS review_reports (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        review_id UUID NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+        reporter_name TEXT,
+        reporter_email TEXT,
+        reason TEXT NOT NULL,
+        details TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    const result = await dbQuery(`
+      SELECT rr.*,
+             r.title AS review_title,
+             r.content AS review_content,
+             r.rating AS review_rating,
+             r.status AS review_status,
+             b.name AS business_name,
+             b.id AS business_id,
+             u.name AS author_name,
+             u.email AS author_email
+      FROM review_reports rr
+      JOIN reviews r ON r.id = rr.review_id
+      JOIN businesses b ON b.id = r.business_id
+      JOIN users u ON u.id = r.user_id
+      ORDER BY rr.created_at DESC
+    `)
+    res.json({ success: true, data: result.rows })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.patch('/reports/:id/status', async (req, res, next) => {
+  try {
+    const { status } = req.body
+    if (!['open', 'reviewed', 'dismissed'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' })
+    }
+    const result = await dbQuery(
+      `UPDATE review_reports SET status = $1 WHERE id = $2 RETURNING *`,
+      [status, req.params.id],
+    )
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Report not found' })
+    }
+    res.json({ success: true, data: result.rows[0] })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/reports/:id', async (req, res, next) => {
+  try {
+    await dbQuery(`DELETE FROM review_reports WHERE id = $1`, [req.params.id])
+    res.json({ success: true })
   } catch (err) {
     next(err)
   }
