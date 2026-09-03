@@ -18,6 +18,8 @@ const STATIC_PATHS = [
   '/privacy',
   '/terms',
   '/terms/business',
+  '/posting-guidelines',
+  '/cookies',
 ]
 
 function siteOrigin() {
