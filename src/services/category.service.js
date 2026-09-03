@@ -405,4 +405,140 @@ export const categoryService = {
 
     return result.rows[0].name
   },
+
+  /**
+   * Ensure every business.category exists as a CRM subcategory.
+   * Creates missing ones under "Imported Categories" (or under a matching main).
+   * Normalizes business.category to the exact CRM subcategory name.
+   */
+  async syncBusinessCategories() {
+    await ensureCategoryTables()
+    await this.seedDefaultCategories()
+
+    const decode = (value) =>
+      String(value || '')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#039;/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    async function uniqueSlug(base) {
+      let candidate = base || 'category'
+      let n = 2
+      while (true) {
+        const existing = await query(
+          `SELECT id FROM sub_categories WHERE slug = $1
+           UNION ALL
+           SELECT id FROM main_categories WHERE slug = $1`,
+          [candidate],
+        )
+        if (existing.rows.length === 0) return candidate
+        candidate = `${base}-${n}`
+        n += 1
+      }
+    }
+
+    async function ensureMain(name) {
+      const trimmed = decode(name)
+      const existing = await query(
+        `SELECT id, name FROM main_categories WHERE LOWER(name) = LOWER($1)`,
+        [trimmed],
+      )
+      if (existing.rows[0]) return existing.rows[0]
+      const sortOrderResult = await query(
+        'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM main_categories',
+      )
+      const slug = await uniqueSlug(slugify(trimmed))
+      const inserted = await query(
+        `INSERT INTO main_categories (name, slug, sort_order)
+         VALUES ($1, $2, $3) RETURNING id, name`,
+        [trimmed, slug, sortOrderResult.rows[0].next],
+      )
+      return inserted.rows[0]
+    }
+
+    async function ensureSub(mainId, name) {
+      const trimmed = decode(name)
+      const existing = await query(
+        `SELECT id, name FROM sub_categories WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+        [trimmed],
+      )
+      if (existing.rows[0]) return { ...existing.rows[0], created: false }
+      const slug = await uniqueSlug(slugify(trimmed))
+      const inserted = await query(
+        `INSERT INTO sub_categories (main_category_id, name, slug)
+         VALUES ($1, $2, $3) RETURNING id, name`,
+        [mainId, trimmed, slug],
+      )
+      return { ...inserted.rows[0], created: true }
+    }
+
+    const importedMain = await ensureMain('Imported Categories')
+    const businessCats = await query(`
+      SELECT DISTINCT TRIM(category) AS category
+      FROM businesses
+      WHERE category IS NOT NULL AND TRIM(category) <> ''
+      ORDER BY 1
+    `)
+
+    let createdSubs = 0
+    let businessesUpdated = 0
+    let matchedExisting = 0
+
+    for (const row of businessCats.rows) {
+      const stored = String(row.category || '').trim()
+      const raw = decode(stored)
+      if (!raw) continue
+
+      let sub = (
+        await query(
+          `SELECT id, name FROM sub_categories WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+          [raw],
+        )
+      ).rows[0]
+
+      if (!sub) {
+        const mainMatch = (
+          await query(
+            `SELECT id FROM main_categories WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+            [raw],
+          )
+        ).rows[0]
+        const ensured = await ensureSub(mainMatch?.id || importedMain.id, raw)
+        sub = ensured
+        if (ensured.created) createdSubs += 1
+      } else {
+        matchedExisting += 1
+      }
+
+      const updated = await query(
+        `UPDATE businesses
+         SET category = $1, updated_at = NOW()
+         WHERE category IS DISTINCT FROM $1
+           AND (
+             LOWER(TRIM(category)) = LOWER($2)
+             OR LOWER(TRIM(category)) = LOWER($3)
+             OR REPLACE(LOWER(TRIM(category)), '&amp;', '&') = LOWER($2)
+           )`,
+        [sub.name, raw, stored],
+      )
+      businessesUpdated += updated.rowCount || 0
+    }
+
+    const totals = await query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM main_categories) AS mains,
+        (SELECT COUNT(*)::int FROM sub_categories) AS subs
+    `)
+
+    return {
+      uniqueBusinessCategories: businessCats.rows.length,
+      createdSubs,
+      matchedExisting,
+      businessesUpdated,
+      mains: totals.rows[0].mains,
+      subs: totals.rows[0].subs,
+    }
+  },
 }

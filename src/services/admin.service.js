@@ -356,6 +356,10 @@ export const adminService = {
     return categoryService.seedDefaultCategories()
   },
 
+  async syncBusinessCategories() {
+    return categoryService.syncBusinessCategories()
+  },
+
   async createBusiness(data) {
     await ensureBusinessStatusColumn()
     const {

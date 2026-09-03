@@ -275,6 +275,16 @@ router.post('/categories/seed', async (_req, res, next) => {
   }
 })
 
+router.post('/categories/sync-businesses', async (_req, res, next) => {
+  try {
+    const result = await adminService.syncBusinessCategories()
+    const categories = await adminService.getCategories()
+    res.json({ success: true, data: { ...result, categories } })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.post(
   '/categories',
   [body('name').trim().notEmpty().withMessage('Category name is required')],
