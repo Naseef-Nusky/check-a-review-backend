@@ -31,6 +31,24 @@ router.get('/users', async (_req, res, next) => {
   }
 })
 
+router.post(
+  '/users',
+  [
+    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('email').isEmail().withMessage('Valid email required'),
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const user = await adminService.createUser(req.body)
+      res.status(201).json({ success: true, data: user })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.patch(
   '/users/:id',
   [
@@ -360,6 +378,28 @@ router.get('/reviews', async (_req, res, next) => {
     next(err)
   }
 })
+
+router.post(
+  '/reviews',
+  [
+    body('userId').isUUID().withMessage('Valid customer userId is required'),
+    body('businessId').isUUID().withMessage('Valid businessId is required'),
+    body('rating').isInt({ min: 1, max: 5 }).withMessage('Rating must be 1-5'),
+    body('title').trim().notEmpty().withMessage('Title is required'),
+    body('content').trim().isLength({ min: 10 }).withMessage('Content must be at least 10 characters'),
+    body('status').optional().isIn(['pending', 'published', 'rejected']).withMessage('Invalid status'),
+    body('createdAt').optional().isISO8601({ strict: false }).withMessage('Invalid createdAt'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const review = await adminService.createReview(req.body)
+      res.status(201).json({ success: true, data: review })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
 
 router.get('/reviews/flagged', async (_req, res, next) => {
   try {

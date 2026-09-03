@@ -78,6 +78,39 @@ export const adminService = {
     return result.rows
   },
 
+  async createUser({ name, email, password }) {
+    const trimmedName = String(name || '').trim()
+    const nextEmail = String(email || '').trim().toLowerCase()
+    const nextPassword = String(password || '')
+
+    if (!trimmedName) throw new AppError('Name is required', 400)
+    if (!nextEmail) throw new AppError('Email is required', 400)
+    if (nextPassword.length < 8) {
+      throw new AppError('Password must be at least 8 characters', 400)
+    }
+
+    const existing = await query(
+      `SELECT id FROM users WHERE email = $1 AND role = 'customer'`,
+      [nextEmail],
+    )
+    if (existing.rows.length > 0) {
+      throw new AppError('A customer account with this email already exists', 409)
+    }
+
+    const passwordHash = await bcrypt.hash(nextPassword, 12)
+    const result = await query(
+      `INSERT INTO users (email, password_hash, name, role, email_verified)
+       VALUES ($1, $2, $3, 'customer', TRUE)
+       RETURNING id, name, email, role, email_verified, created_at, updated_at`,
+      [nextEmail, passwordHash, trimmedName],
+    )
+
+    return {
+      ...result.rows[0],
+      review_count: 0,
+    }
+  },
+
   async updateUser(id, { name, email, password, email_verified }) {
     const existing = await query(
       `SELECT * FROM users WHERE id = $1 AND role = 'customer'`,
@@ -549,6 +582,77 @@ export const adminService = {
        ORDER BY r.created_at DESC`,
     )
     return result.rows
+  },
+
+  async createReview({ userId, businessId, rating, title, content, status = 'published', createdAt }) {
+    const nextStatus = status || 'published'
+    if (!['pending', 'published', 'rejected'].includes(nextStatus)) {
+      throw new AppError('Status must be pending, published, or rejected', 400)
+    }
+
+    const nextRating = Number(rating)
+    if (!Number.isInteger(nextRating) || nextRating < 1 || nextRating > 5) {
+      throw new AppError('Rating must be an integer from 1 to 5', 400)
+    }
+
+    const nextTitle = String(title || '').trim()
+    const nextContent = String(content || '').trim()
+    if (!nextTitle) throw new AppError('Title is required', 400)
+    if (nextContent.length < 10) {
+      throw new AppError('Review content must be at least 10 characters', 400)
+    }
+
+    const [userResult, businessResult] = await Promise.all([
+      query(`SELECT id, name, email FROM users WHERE id = $1 AND role = 'customer'`, [userId]),
+      query(`SELECT id, name, slug FROM businesses WHERE id = $1`, [businessId]),
+    ])
+
+    if (userResult.rows.length === 0) throw new AppError('Customer user not found', 404)
+    if (businessResult.rows.length === 0) throw new AppError('Business not found', 404)
+
+    const existing = await query(
+      'SELECT id FROM reviews WHERE business_id = $1 AND user_id = $2',
+      [businessId, userId],
+    )
+    if (existing.rows.length > 0) {
+      throw new AppError('This customer has already reviewed this business', 409)
+    }
+
+    const createdAtTs = createdAt ? new Date(createdAt) : new Date()
+    if (Number.isNaN(createdAtTs.getTime())) {
+      throw new AppError('Invalid createdAt', 400)
+    }
+
+    const inserted = await query(
+      `INSERT INTO reviews (business_id, user_id, rating, title, content, status, ai_risk_score, ai_flags, ai_analysis, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 0, '[]'::jsonb, $7::jsonb, $8::timestamptz, NOW())
+       RETURNING *`,
+      [
+        businessId,
+        userId,
+        nextRating,
+        nextTitle,
+        nextContent,
+        nextStatus,
+        JSON.stringify({ source: 'crm', processingStage: 'skipped' }),
+        createdAtTs.toISOString(),
+      ],
+    )
+
+    await businessService.updateBusinessStats(businessId)
+
+    const review = inserted.rows[0]
+    const author = userResult.rows[0]
+    const business = businessResult.rows[0]
+
+    return {
+      ...review,
+      author_name: author.name,
+      author_email: author.email,
+      business_name: business.name,
+      business_id: business.id,
+      business_slug: business.slug,
+    }
   },
 
   async getReviewById(id) {
