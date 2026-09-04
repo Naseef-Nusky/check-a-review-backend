@@ -460,7 +460,15 @@ export const adminService = {
       [businessId],
     )
 
-    return result.rows[0]
+    const created = result.rows[0]
+    try {
+      const { searchIndexService } = await import('./searchIndex.service.js')
+      searchIndexService.notifyBusinessPublished(created)
+    } catch (err) {
+      console.error('search index notify failed:', err.message)
+    }
+
+    return created
   },
 
   async updateBusiness(id, data) {

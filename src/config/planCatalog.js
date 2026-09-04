@@ -1,4 +1,4 @@
-export const CATALOG_VERSION = 13
+export const CATALOG_VERSION = 15
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
 export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium']
@@ -118,7 +118,7 @@ export const PLAN_CATALOG = {
     integrations: 15,
     ctaLabel: 'Buy now',
     notes: [
-      'Designed for small businesses (up to $5M revenue).',
+      'Designed for small businesses (up to £5M revenue).',
       'Available to new customers only.',
     ],
     description: 'One website — for small businesses getting started with reviews.',
@@ -291,19 +291,19 @@ export function buildPricingContentFromCatalog() {
   return {
     heroTitle: 'Turn trust into growth with Check A Review',
     heroSubtitle:
-      'Plans built like a modern review platform: collect feedback, showcase TrustScore, and convert trust into demand.',
+      'Start with a free business profile at no cost, then upgrade when you need more invitations, widgets, and insights.',
     billingNote:
       'Paid plans are priced and billed monthly in GBP.',
-    trustBadge: '14-day free trial on Plus',
+    trustBadge: 'Free business profile · 14-day free trial on Plus',
     logos: [],
     steps: [
       {
-        title: 'Pick your plan',
-        description: 'Start with Starter, grow into Plus, or upgrade to Premium for richer insights.',
+        title: 'Create a free profile',
+        description: 'Register your business at no cost, claim your listing, and start responding to reviews.',
       },
       {
         title: 'Collect more reviews',
-        description: 'Send monthly invitations within your plan quota and follow up with customers.',
+        description: 'Upgrade to send monthly invitations within your plan quota and follow up with customers.',
       },
       {
         title: 'Showcase trust',
@@ -346,8 +346,13 @@ export function buildPricingContentFromCatalog() {
     ],
     faqs: [
       {
+        question: 'Can I create a free business profile?',
+        answer:
+          'Yes, you can create a free business profile and register on Check A Review at no cost to manage your reputation and respond to customer reviews.',
+      },
+      {
         question: 'Are prices billed monthly or annually?',
-        answer: 'Prices are shown per month in GBP and billed monthly.',
+        answer: 'Prices are shown per month in GBP and billed monthly. Creating a free business profile does not require a paid plan.',
       },
       {
         question: 'Does Plus include a free trial?',

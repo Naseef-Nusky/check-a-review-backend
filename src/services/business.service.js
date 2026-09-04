@@ -333,6 +333,8 @@ export const businessService = {
           `${business.name} is now live on Check A Review.`,
           'business_approved',
         )
+        const { searchIndexService } = await import('./searchIndex.service.js')
+        searchIndexService.notifyBusinessPublished(business)
       }
 
       if (status === 'rejected' && previousStatus !== 'rejected') {

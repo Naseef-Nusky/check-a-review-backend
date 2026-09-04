@@ -10,7 +10,12 @@ import widgetRoutes from './widget.routes.js'
 import mediaRoutes from './media.routes.js'
 import teamRoutes from './team.routes.js'
 import domainRoutes from './domain.routes.js'
-import { sendSitemap, sendBusinessSitemap, sendBusinessPrerender } from './seo.routes.js'
+import {
+  sendSitemap,
+  sendBusinessSitemap,
+  sendBusinessPrerender,
+  sendIndexNowKey,
+} from './seo.routes.js'
 
 const router = Router()
 
@@ -21,6 +26,10 @@ router.get('/health', (_req, res) => {
 router.get('/sitemap.xml', sendSitemap)
 router.get('/business-sitemap.xml', sendBusinessSitemap)
 router.get('/prerender/businesses/:slug', sendBusinessPrerender)
+router.get('/:keyFile', (req, res, next) => {
+  if (!String(req.params.keyFile || '').endsWith('.txt')) return next()
+  return sendIndexNowKey(req, res, next)
+})
 
 
 router.use('/auth', authRoutes)

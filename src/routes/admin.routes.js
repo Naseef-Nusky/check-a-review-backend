@@ -192,6 +192,17 @@ router.delete('/businesses/:id', async (req, res, next) => {
   }
 })
 
+/** Submit all published business URLs to IndexNow (Bing/Yandex). Google mainly uses the live sitemap. */
+router.post('/seo/notify-all-published', requireSuperAdmin, async (_req, res, next) => {
+  try {
+    const { searchIndexService } = await import('../services/searchIndex.service.js')
+    const result = await searchIndexService.notifyAllPublishedBusinesses()
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/categories', async (_req, res, next) => {
   try {
     const categories = await adminService.getCategories()
