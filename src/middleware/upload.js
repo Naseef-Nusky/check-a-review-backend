@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename)
 export const uploadsRoot = path.resolve(__dirname, '../../uploads')
 export const logosDir = path.join(uploadsRoot, 'logos')
 export const avatarsDir = path.join(uploadsRoot, 'avatars')
+export const claimsDir = path.join(uploadsRoot, 'claims')
 
 const LOGO_MIME_TYPES = new Set([
   'image/png',
@@ -18,6 +19,16 @@ const LOGO_MIME_TYPES = new Set([
 ])
 
 const LOGO_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+
+const CLAIM_ATTACHMENT_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'application/pdf',
+])
+
+const CLAIM_ATTACHMENT_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.pdf'])
 
 const IMAGE_EXTENSIONS = new Set([
   '.png',
@@ -40,6 +51,7 @@ const IMAGE_EXTENSIONS = new Set([
 
 fs.mkdirSync(logosDir, { recursive: true })
 fs.mkdirSync(avatarsDir, { recursive: true })
+fs.mkdirSync(claimsDir, { recursive: true })
 
 function createImageUpload({ destination, prefix, errorMessage, allowAnyImage = false }) {
   const storage = multer.diskStorage({
@@ -117,4 +129,33 @@ export function buildLogoPublicPath(filename) {
 
 export function buildAvatarPublicPath(filename) {
   return `/uploads/avatars/${filename}`
+}
+
+export const claimAttachmentUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, claimsDir)
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase() || '.bin'
+      const safeExt = CLAIM_ATTACHMENT_EXTENSIONS.has(ext) ? ext : '.bin'
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+      cb(null, `claim-${unique}${safeExt}`)
+    },
+  }),
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase()
+    if (!CLAIM_ATTACHMENT_MIME_TYPES.has(file.mimetype) || !CLAIM_ATTACHMENT_EXTENSIONS.has(ext)) {
+      return cb(new AppError('Attachments must be PNG, JPG, WEBP, or PDF (max 8MB each).', 400))
+    }
+    cb(null, true)
+  },
+  limits: {
+    fileSize: 8 * 1024 * 1024,
+    files: 5,
+  },
+})
+
+export function buildClaimAttachmentPublicPath(filename) {
+  return `/uploads/claims/${filename}`
 }

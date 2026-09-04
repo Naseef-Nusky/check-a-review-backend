@@ -678,6 +678,70 @@ export const emailService = {
     })
   },
 
+  async sendClaimVerificationEmail(to, name, businessName, verifyUrl) {
+    const APP_NAME = await appName()
+    await sendTemplatedEmail({
+      to,
+      subject: `Verify your email to claim ${businessName}`,
+      template: {
+        eyebrow: `${APP_NAME} · Claim business`,
+        title: 'Verify your email',
+        intro: `Hi ${escapeHtml(name)}, thanks for requesting to claim <strong>${escapeHtml(businessName)}</strong>.`,
+        body: 'Confirm your email address so our team can review your claim. Your claim stays pending until this step is complete.',
+        primaryCta: { label: 'Verify email', href: verifyUrl },
+        footerNote: 'This verification link expires in 48 hours.',
+      },
+    })
+  },
+
+  async sendClaimApprovedEmail(to, name, businessName, loginUrl) {
+    const APP_NAME = await appName()
+    await sendTemplatedEmail({
+      to,
+      subject: `You now own ${businessName} on ${APP_NAME}`,
+      template: {
+        eyebrow: 'Claim approved',
+        title: 'Your business claim was approved',
+        intro: `Hi ${escapeHtml(name)}, <strong>${escapeHtml(businessName)}</strong> is now linked to your Check A Review business account.`,
+        body: 'Log in to the business dashboard to manage your profile, respond to reviews, and invite your team.',
+        primaryCta: { label: 'Open business dashboard', href: loginUrl },
+        footerNote: 'You are receiving this because your claim request was approved.',
+      },
+    })
+  },
+
+  async sendClaimRejectedEmail(to, name, businessName, notes) {
+    await sendTemplatedEmail({
+      to,
+      subject: `Update on your claim for ${businessName}`,
+      template: {
+        eyebrow: 'Claim not approved',
+        title: 'We could not approve this claim',
+        intro: `Hi ${escapeHtml(name)}, we reviewed your request to claim <strong>${escapeHtml(businessName)}</strong> and could not approve it.`,
+        body: notes
+          ? `Admin note: ${escapeHtml(notes)}`
+          : 'If you believe this is a mistake, contact support with additional proof of association.',
+        footerNote: 'You are receiving this because you submitted a business claim request.',
+      },
+    })
+  },
+
+  async sendClaimNeedsInfoEmail(to, name, businessName, notes) {
+    await sendTemplatedEmail({
+      to,
+      subject: `More information needed to claim ${businessName}`,
+      template: {
+        eyebrow: 'Claim — action needed',
+        title: 'Please provide more information',
+        intro: `Hi ${escapeHtml(name)}, our team needs a bit more detail before we can approve your claim for <strong>${escapeHtml(businessName)}</strong>.`,
+        body: notes
+          ? escapeHtml(notes)
+          : 'Reply to support or resubmit supporting verification details so we can continue the review.',
+        footerNote: 'Your claim remains open while we wait for more information.',
+      },
+    })
+  },
+
   async sendBusinessApprovedEmail(to, businessName) {
     await sendTemplatedEmail({
       to,

@@ -79,6 +79,69 @@ CREATE TABLE IF NOT EXISTS businesses (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS claimed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS verified_contact BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS verified_identity BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS verified_ownership BOOLEAN NOT NULL DEFAULT false;
+
+-- Business claim requests (public claim flow)
+CREATE TABLE IF NOT EXISTS business_claims (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  full_name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  phone VARCHAR(50),
+  job_title VARCHAR(255),
+  relationship VARCHAR(255),
+  verification_info TEXT,
+  password_hash TEXT,
+  status VARCHAR(30) NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'under_review', 'needs_info', 'approved', 'rejected')),
+  email_verified BOOLEAN NOT NULL DEFAULT false,
+  email_verified_at TIMESTAMPTZ,
+  email_verify_token_hash VARCHAR(255),
+  email_verify_expires_at TIMESTAMPTZ,
+  contact_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (contact_status IN ('pending', 'verified', 'failed', 'not_provided')),
+  ownership_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (ownership_status IN ('pending', 'verified', 'failed', 'not_provided')),
+  identity_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (identity_status IN ('pending', 'verified', 'failed', 'not_provided')),
+  other_status VARCHAR(20) NOT NULL DEFAULT 'not_provided'
+    CHECK (other_status IN ('pending', 'verified', 'failed', 'not_provided')),
+  admin_notes TEXT,
+  reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMPTZ,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS business_ownership_history (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  claim_id UUID REFERENCES business_claims(id) ON DELETE SET NULL,
+  event_type VARCHAR(50) NOT NULL,
+  from_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  to_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  from_email VARCHAR(255),
+  to_email VARCHAR(255),
+  note TEXT,
+  performed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS business_claim_attachments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  claim_id UUID NOT NULL REFERENCES business_claims(id) ON DELETE CASCADE,
+  original_name VARCHAR(255) NOT NULL,
+  stored_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(100),
+  size_bytes INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Reviews
 CREATE TABLE IF NOT EXISTS reviews (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

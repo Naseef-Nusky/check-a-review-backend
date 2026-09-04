@@ -671,4 +671,132 @@ router.delete('/reports/:id', async (req, res, next) => {
   }
 })
 
+// ── Business claim requests ──────────────────────────────────────────────
+router.get('/claims', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const claims = await claimService.listClaims({ status: req.query.status })
+    res.json({ success: true, data: claims })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/claims/attachments/:attachmentId', async (req, res, next) => {
+  try {
+    const pathMod = await import('path')
+    const { claimsDir } = await import('../middleware/upload.js')
+    const { claimService } = await import('../services/claim.service.js')
+    const file = await claimService.getAttachmentFile(req.params.attachmentId)
+    const absolute = pathMod.join(claimsDir, file.storedName)
+    res.download(absolute, file.originalName, (err) => {
+      if (err && !res.headersSent) next(err)
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/claims/:id', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const claim = await claimService.getClaim(req.params.id)
+    res.json({ success: true, data: claim })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.patch('/claims/:id/verification', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const claim = await claimService.updateClaimVerification(req.params.id, req.body, req.user.id)
+    res.json({ success: true, data: claim })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/claims/:id/review', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const action = String(req.body.action || '').trim()
+    const claim = await claimService.reviewClaim(req.params.id, action, req.user.id, {
+      notes: req.body.notes,
+    })
+    res.json({ success: true, data: claim })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/businesses/:id/users', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const users = await claimService.listBusinessUsers(req.params.id)
+    res.json({ success: true, data: users })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/businesses/:id/users', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const member = await claimService.addBusinessUser(req.params.id, req.body, req.user.id)
+    res.status(201).json({ success: true, data: member })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.patch('/businesses/:id/users/:memberId', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const member = await claimService.updateBusinessUser(
+      req.params.id,
+      req.params.memberId,
+      req.body,
+      req.user.id,
+    )
+    res.json({ success: true, data: member })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/businesses/:id/users/:memberId', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const result = await claimService.removeBusinessUser(req.params.id, req.params.memberId, req.user.id)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/businesses/:id/change-owner', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const result = await claimService.changeOwner(
+      req.params.id,
+      req.body.memberId || req.body.userId,
+      req.user.id,
+    )
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/businesses/:id/ownership-history', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const history = await claimService.getOwnershipHistory(req.params.id)
+    res.json({ success: true, data: history })
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router

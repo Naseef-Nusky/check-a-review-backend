@@ -63,6 +63,9 @@ export const adminService = {
       revenueCurrency,
       flaggedReviews: parseInt(flagged.rows[0].count, 10),
       pendingBusinesses: parseInt(pendingBusinesses.rows[0].count, 10),
+      pendingClaims: await import('./claim.service.js')
+        .then(({ claimService }) => claimService.pendingClaimCount())
+        .catch(() => 0),
       ...squareService.getBillingStatus(),
     }
   },
@@ -461,6 +464,12 @@ export const adminService = {
     )
 
     const created = result.rows[0]
+    try {
+      const { claimService } = await import('./claim.service.js')
+      await claimService.markBusinessClaimed(businessId)
+    } catch (err) {
+      console.error('mark claimed failed:', err.message)
+    }
     try {
       const { searchIndexService } = await import('./searchIndex.service.js')
       searchIndexService.notifyBusinessPublished(created)

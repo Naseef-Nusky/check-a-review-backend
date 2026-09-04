@@ -335,6 +335,8 @@ export const businessService = {
         )
         const { searchIndexService } = await import('./searchIndex.service.js')
         searchIndexService.notifyBusinessPublished(business)
+        const { claimService } = await import('./claim.service.js')
+        await claimService.markBusinessClaimed(business.id)
       }
 
       if (status === 'rejected' && previousStatus !== 'rejected') {
