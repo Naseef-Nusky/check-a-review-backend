@@ -23,7 +23,10 @@ const STATIC_PATHS = [
 ]
 
 function siteOrigin() {
-  return String(env.PUBLIC_SITE_URL || 'http://localhost:5173').replace(/\/$/, '')
+  return String(process.env.PUBLIC_SITE_URL || env.PUBLIC_SITE_URL || 'https://checkareview.com').replace(
+    /\/$/,
+    '',
+  )
 }
 
 function escapeXml(value = '') {

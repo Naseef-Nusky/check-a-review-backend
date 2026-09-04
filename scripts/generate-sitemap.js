@@ -7,6 +7,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
+import { pool } from '../src/db/pool.js'
 import { sitemapService } from '../src/services/sitemap.service.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -23,13 +24,23 @@ async function main() {
   const xml = await sitemapService.buildXml()
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
   fs.writeFileSync(outPath, xml, 'utf8')
+  const businessCount = (xml.match(/\/businesses\//g) || []).length
   console.log(`Wrote ${outPath}`)
   console.log(`Sitemap origin: ${origin}`)
+  console.log(`Published business URLs: ${businessCount}`)
 }
 
 main()
-  .then(() => process.exit(0))
-  .catch((err) => {
+  .then(async () => {
+    await pool.end()
+    process.exit(0)
+  })
+  .catch(async (err) => {
     console.error(err)
+    try {
+      await pool.end()
+    } catch {
+      /* ignore */
+    }
     process.exit(1)
   })
