@@ -1,5 +1,6 @@
 import { env } from '../config/env.js'
 import { query } from '../db/pool.js'
+import { businessPublicUrl } from '../utils/businessPublicUrl.js'
 
 const DEFAULT_KEY = 'car-indexnow-8f2c4a91e6b03d75'
 
@@ -23,9 +24,8 @@ function indexNowKey() {
 }
 
 function businessUrl(business) {
-  const slug = business?.slug || business?.id
-  if (!slug) return null
-  return `${siteOrigin()}/businesses/${encodeURIComponent(slug)}`
+  if (!business) return null
+  return businessPublicUrl(siteOrigin(), business)
 }
 
 function runInBackground(label, work) {
@@ -95,7 +95,7 @@ export const searchIndexService = {
   /** One-time / on-demand: submit all published business URLs via IndexNow (batched). */
   async notifyAllPublishedBusinesses() {
     const result = await query(
-      `SELECT slug, id
+      `SELECT slug, id, website
        FROM businesses
        WHERE status = 'published' AND slug IS NOT NULL AND slug <> ''
        ORDER BY updated_at DESC`,

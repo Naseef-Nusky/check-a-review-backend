@@ -2,6 +2,7 @@ import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { ensureBusinessStatusColumn } from './business.service.js'
 import { categoryService } from './category.service.js'
+import { businessPublicUrl } from '../utils/businessPublicUrl.js'
 
 const STATIC_PATHS = [
   '/',
@@ -89,7 +90,7 @@ export const sitemapService = {
     }
 
     const businesses = await query(
-      `SELECT slug, updated_at
+      `SELECT slug, website, updated_at
        FROM businesses
        WHERE status = 'published' AND slug IS NOT NULL AND slug <> ''
        ORDER BY updated_at DESC`,
@@ -98,7 +99,7 @@ export const sitemapService = {
     for (const business of businesses.rows) {
       entries.push(
         urlEntry({
-          loc: `${origin}/businesses/${encodeURIComponent(business.slug)}`,
+          loc: businessPublicUrl(origin, business),
           lastmod: toIsoDate(business.updated_at),
           changefreq: 'weekly',
           priority: '0.8',

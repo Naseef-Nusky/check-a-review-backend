@@ -26,6 +26,7 @@ router.get('/health', (_req, res) => {
 
 router.get('/sitemap.xml', sendSitemap)
 router.get('/business-sitemap.xml', sendBusinessSitemap)
+router.get('/prerender/review/:domain', sendBusinessPrerender)
 router.get('/prerender/businesses/:slug', sendBusinessPrerender)
 router.get('/:keyFile', (req, res, next) => {
   if (!String(req.params.keyFile || '').endsWith('.txt')) return next()

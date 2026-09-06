@@ -2,6 +2,7 @@ import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { AppError } from '../utils/helpers.js'
 import { businessService } from './business.service.js'
+import { businessPublicPath, businessPublicUrl } from '../utils/businessPublicUrl.js'
 
 function siteOrigin() {
   return String(process.env.PUBLIC_SITE_URL || env.PUBLIC_SITE_URL || 'https://checkareview.com').replace(
@@ -120,9 +121,8 @@ export const prerenderService = {
     const reviews = reviewsResult.rows
 
     const origin = siteOrigin()
-    const slug = business.slug || business.id
-    const pagePath = `/businesses/${slug}`
-    const pageUrl = `${origin}${pagePath}`
+    const pagePath = businessPublicPath(business)
+    const pageUrl = businessPublicUrl(origin, business)
     const rating = Number(business.average_rating || 0)
     const reviewCount = Number(business.review_count || 0)
     const title = `${business.name} Reviews | Check A Review`

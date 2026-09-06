@@ -36,7 +36,8 @@ export async function sendBusinessSitemap(_req, res, next) {
 
 export async function sendBusinessPrerender(req, res, next) {
   try {
-    const html = await prerenderService.renderBusinessPage(req.params.slug)
+    const identifier = req.params.domain || req.params.slug || req.params.identifier
+    const html = await prerenderService.renderBusinessPage(identifier)
     res
       .status(200)
       .set({
@@ -72,7 +73,9 @@ export async function sendIndexNowKey(req, res, next) {
 
 router.get('/sitemap.xml', sendSitemap)
 router.get('/business-sitemap.xml', sendBusinessSitemap)
+router.get('/prerender/review/:domain', sendBusinessPrerender)
 router.get('/prerender/businesses/:slug', sendBusinessPrerender)
+router.get('/review/:domain', sendBusinessPrerender)
 router.get('/businesses/:slug', sendBusinessPrerender)
 router.get('/:keyFile', (req, res, next) => {
   if (!String(req.params.keyFile || '').endsWith('.txt')) return next()

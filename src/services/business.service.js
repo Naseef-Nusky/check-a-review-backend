@@ -10,6 +10,7 @@ import {
   mediaService,
 } from './media.service.js'
 import { assertBusinessAccess, assertBusinessOwner, getBusinessForUser } from './businessAccess.service.js'
+import { toApexDomain } from '../utils/businessPublicUrl.js'
 
 let statusColumnReady = false
 
@@ -116,6 +117,15 @@ export const businessService = {
 
   async getBySlugOrId(identifier, { includeUnpublished = false } = {}) {
     await ensureBusinessStatusColumn()
+    try {
+      const { ensureBusinessDomainsTable } = await import('./domain.service.js')
+      await ensureBusinessDomainsTable()
+    } catch {
+      // Domain table optional for domain lookup fallback
+    }
+    const key = String(identifier || '').trim()
+    if (!key) throw new AppError('Business not found', 404)
+
     const result = await query(
       `SELECT b.*, s.plan as subscription_plan, u.name as owner_name
        FROM businesses b
@@ -123,10 +133,50 @@ export const businessService = {
        LEFT JOIN users u ON u.id = b.user_id
        WHERE (b.slug = $1 OR b.id::text = $1)
          AND ($2::boolean OR b.status = 'published')`,
-      [identifier, includeUnpublished],
+      [key, includeUnpublished],
     )
-    if (result.rows.length === 0) throw new AppError('Business not found', 404)
-    return result.rows[0]
+    if (result.rows[0]) return result.rows[0]
+
+    const apex = toApexDomain(key)
+    if (!apex) throw new AppError('Business not found', 404)
+
+    let byDomain
+    try {
+      byDomain = await query(
+        `SELECT b.*, s.plan as subscription_plan, u.name as owner_name
+         FROM businesses b
+         LEFT JOIN subscriptions s ON s.business_id = b.id
+         LEFT JOIN users u ON u.id = b.user_id
+         LEFT JOIN business_domains d ON d.business_id = b.id
+         WHERE ($2::boolean OR b.status = 'published')
+           AND (
+             lower(COALESCE(d.domain, '')) = $1
+             OR lower(regexp_replace(regexp_replace(COALESCE(b.website, ''), '^https?://', '', 'i'), '/.*$', '')) IN ($1, 'www.' || $1)
+           )
+         ORDER BY b.updated_at DESC
+         LIMIT 1`,
+        [apex, includeUnpublished],
+      )
+    } catch {
+      byDomain = { rows: [] }
+    }
+    if (byDomain.rows[0]) return byDomain.rows[0]
+
+    const candidates = await query(
+      `SELECT b.*, s.plan as subscription_plan, u.name as owner_name
+       FROM businesses b
+       LEFT JOIN subscriptions s ON s.business_id = b.id
+       LEFT JOIN users u ON u.id = b.user_id
+       WHERE ($2::boolean OR b.status = 'published')
+         AND COALESCE(b.website, '') ILIKE '%' || $1 || '%'
+       ORDER BY b.updated_at DESC
+       LIMIT 25`,
+      [apex, includeUnpublished],
+    )
+    const matched = candidates.rows.find((row) => toApexDomain(row.website) === apex)
+    if (matched) return matched
+
+    throw new AppError('Business not found', 404)
   },
 
   async getCategories() {
