@@ -3,6 +3,7 @@ import { env } from '../config/env.js'
 import { AppError } from '../utils/helpers.js'
 import { businessService } from './business.service.js'
 import { businessPublicPath, businessPublicUrl } from '../utils/businessPublicUrl.js'
+import { buildBusinessSeo } from '../utils/seoMeta.js'
 
 function siteOrigin() {
   return String(process.env.PUBLIC_SITE_URL || env.PUBLIC_SITE_URL || 'https://checkareview.com').replace(
@@ -125,8 +126,7 @@ export const prerenderService = {
     const pageUrl = businessPublicUrl(origin, business)
     const rating = Number(business.average_rating || 0)
     const reviewCount = Number(business.review_count || 0)
-    const title = `${business.name} Reviews | Check A Review`
-    const description = [
+    const fallbackDescription = [
       `${business.name} reviews on Check A Review.`,
       `Read ${reviewCount} verified customer review${reviewCount === 1 ? '' : 's'}.`,
       rating > 0 ? `Average rating ${rating.toFixed(1)} out of 5.` : null,
@@ -134,9 +134,26 @@ export const prerenderService = {
     ]
       .filter(Boolean)
       .join(' ')
+    const seo = buildBusinessSeo(business, {
+      fallbackTitle: `${business.name} Reviews | Check A Review`,
+      fallbackDescription,
+    })
+    const { title, description, keywords, extraTags } = seo
 
     const logo = absoluteMediaUrl(business.logo_url)
     const jsonLd = buildJsonLd(business, reviews, pageUrl)
+    const extraMetaHtml = (extraTags || [])
+      .map((tag) => {
+        if (tag.name) {
+          return `<meta name="${escapeHtml(tag.name)}" content="${escapeHtml(tag.content)}" />`
+        }
+        if (tag.property) {
+          return `<meta property="${escapeHtml(tag.property)}" content="${escapeHtml(tag.content)}" />`
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n  ')
 
     const reviewHtml = reviews.length
       ? reviews
@@ -162,8 +179,10 @@ export const prerenderService = {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  ${keywords ? `<meta name="keywords" content="${escapeHtml(keywords)}" />` : ''}
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="${escapeHtml(pageUrl)}" />
+  ${extraMetaHtml}
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Check A Review" />
   <meta property="og:title" content="${escapeHtml(title)}" />

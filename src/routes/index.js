@@ -11,6 +11,7 @@ import mediaRoutes from './media.routes.js'
 import teamRoutes from './team.routes.js'
 import domainRoutes from './domain.routes.js'
 import claimRoutes from './claim.routes.js'
+import seoPublicRoutes from './seoPublic.routes.js'
 import {
   sendSitemap,
   sendBusinessSitemap,
@@ -37,6 +38,7 @@ router.get('/:keyFile', (req, res, next) => {
 router.use('/auth', authRoutes)
 router.use('/media', mediaRoutes)
 router.use('/claims', claimRoutes)
+router.use('/seo', seoPublicRoutes)
 router.use('/businesses', businessRoutes)
 router.use('/reviews', reviewRoutes)
 router.use('/notifications', notificationRoutes)

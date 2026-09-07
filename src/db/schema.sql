@@ -84,6 +84,10 @@ ALTER TABLE businesses ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS verified_contact BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS verified_identity BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS verified_ownership BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS seo_title VARCHAR(255);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS seo_description TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS seo_keywords TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS seo_extra_tags JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Business claim requests (public claim flow)
 CREATE TABLE IF NOT EXISTS business_claims (
@@ -227,6 +231,10 @@ CREATE TABLE IF NOT EXISTS website_settings (
   email_provider VARCHAR(20) DEFAULT 'sendgrid',
   domain_dns_check_enabled BOOLEAN DEFAULT TRUE,
   featured_business_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  seo_title VARCHAR(255),
+  seo_description TEXT,
+  seo_keywords TEXT,
+  seo_extra_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

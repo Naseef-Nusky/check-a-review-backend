@@ -5,6 +5,11 @@ import { categoryService } from './category.service.js'
 import { pricingContentService } from './pricing-content.service.js'
 import { bumpTokenVersion } from '../utils/session.js'
 import { ensureBusinessStatusColumn, businessService } from './business.service.js'
+import {
+  ensureBusinessSeoColumns,
+  ensureSiteSeoColumns,
+  normalizeSeoExtraTagsInput,
+} from '../utils/seoMeta.js'
 
 let crmRolesReady = false
 
@@ -335,6 +340,7 @@ export const adminService = {
   },
 
   async getBusinessById(id) {
+    await ensureBusinessSeoColumns()
     const result = await query(
       `SELECT b.*,
               s.plan,
@@ -481,6 +487,7 @@ export const adminService = {
   },
 
   async updateBusiness(id, data) {
+    await ensureBusinessSeoColumns()
     const existing = await this.getBusinessById(id)
     const ownerId = existing.owner_id || existing.user_id
 
@@ -519,6 +526,29 @@ export const adminService = {
       ? (data.email ? String(data.email).toLowerCase() : null)
       : existing.email
 
+    const hasSeoTitle = Object.prototype.hasOwnProperty.call(data, 'seo_title') || Object.prototype.hasOwnProperty.call(data, 'seoTitle')
+    const hasSeoDescription =
+      Object.prototype.hasOwnProperty.call(data, 'seo_description') ||
+      Object.prototype.hasOwnProperty.call(data, 'seoDescription')
+    const hasSeoKeywords =
+      Object.prototype.hasOwnProperty.call(data, 'seo_keywords') || Object.prototype.hasOwnProperty.call(data, 'seoKeywords')
+    const hasSeoExtra =
+      Object.prototype.hasOwnProperty.call(data, 'seo_extra_tags') ||
+      Object.prototype.hasOwnProperty.call(data, 'seoExtraTags')
+
+    const nextSeoTitle = hasSeoTitle
+      ? String(data.seo_title ?? data.seoTitle ?? '').trim() || null
+      : existing.seo_title ?? null
+    const nextSeoDescription = hasSeoDescription
+      ? String(data.seo_description ?? data.seoDescription ?? '').trim() || null
+      : existing.seo_description ?? null
+    const nextSeoKeywords = hasSeoKeywords
+      ? String(data.seo_keywords ?? data.seoKeywords ?? '').trim() || null
+      : existing.seo_keywords ?? null
+    const nextSeoExtra = hasSeoExtra
+      ? normalizeSeoExtraTagsInput(data.seo_extra_tags ?? data.seoExtraTags)
+      : normalizeSeoExtraTagsInput(existing.seo_extra_tags)
+
     await query(
       `UPDATE businesses SET
         name = $1,
@@ -529,6 +559,10 @@ export const adminService = {
         email = $6,
         phone = $7,
         address = $8,
+        seo_title = $10,
+        seo_description = $11,
+        seo_keywords = $12,
+        seo_extra_tags = $13::jsonb,
         updated_at = NOW()
        WHERE id = $9`,
       [
@@ -541,6 +575,10 @@ export const adminService = {
         pickText('phone'),
         pickText('address'),
         id,
+        nextSeoTitle,
+        nextSeoDescription,
+        nextSeoKeywords,
+        JSON.stringify(nextSeoExtra || []),
       ],
     )
 
@@ -763,6 +801,7 @@ export const adminService = {
   },
 
   async getSettings() {
+    await ensureSiteSeoColumns()
     const { settingsService } = await import('./settings.service.js')
     const brand = await settingsService.getBrandSettings()
     await settingsService.isDomainDnsCheckEnabled()
@@ -773,6 +812,10 @@ export const adminService = {
       ...row,
       domain_dns_check_enabled: row.domain_dns_check_enabled ?? true,
       featured_business_ids: featuredBusinessIds,
+      seo_title: row.seo_title || null,
+      seo_description: row.seo_description || null,
+      seo_keywords: row.seo_keywords || null,
+      seo_extra_tags: normalizeSeoExtraTagsInput(row.seo_extra_tags),
       // Prefer media path from DB-backed brand logo so CRM preview stays in sync
       logo_url: brand.logoPath || row.logo_url || null,
     }
@@ -826,6 +869,7 @@ export const adminService = {
   },
 
   async updateSettings(data) {
+    await ensureSiteSeoColumns()
     const { settingsService } = await import('./settings.service.js')
     await settingsService.getBrandSettings()
     await settingsService.isDomainDnsCheckEnabled()
@@ -843,7 +887,48 @@ export const adminService = {
       await this.setFeaturedBusinesses(data.featuredBusinessIds)
     }
 
-    const result = await query(
+    const hasSeo =
+      data.seoTitle !== undefined ||
+      data.seo_title !== undefined ||
+      data.seoDescription !== undefined ||
+      data.seo_description !== undefined ||
+      data.seoKeywords !== undefined ||
+      data.seo_keywords !== undefined ||
+      data.seoExtraTags !== undefined ||
+      data.seo_extra_tags !== undefined
+
+    if (hasSeo) {
+      const current = await query('SELECT * FROM website_settings ORDER BY id ASC LIMIT 1')
+      const row = current.rows[0] || {}
+      const seoTitle =
+        data.seoTitle !== undefined || data.seo_title !== undefined
+          ? String(data.seoTitle ?? data.seo_title ?? '').trim() || null
+          : row.seo_title ?? null
+      const seoDescription =
+        data.seoDescription !== undefined || data.seo_description !== undefined
+          ? String(data.seoDescription ?? data.seo_description ?? '').trim() || null
+          : row.seo_description ?? null
+      const seoKeywords =
+        data.seoKeywords !== undefined || data.seo_keywords !== undefined
+          ? String(data.seoKeywords ?? data.seo_keywords ?? '').trim() || null
+          : row.seo_keywords ?? null
+      const seoExtra =
+        data.seoExtraTags !== undefined || data.seo_extra_tags !== undefined
+          ? normalizeSeoExtraTagsInput(data.seoExtraTags ?? data.seo_extra_tags)
+          : normalizeSeoExtraTagsInput(row.seo_extra_tags)
+
+      await query(
+        `UPDATE website_settings SET
+          seo_title = $1,
+          seo_description = $2,
+          seo_keywords = $3,
+          seo_extra_tags = $4::jsonb,
+          updated_at = NOW()`,
+        [seoTitle, seoDescription, seoKeywords, JSON.stringify(seoExtra || [])],
+      )
+    }
+
+    await query(
       `UPDATE website_settings SET
         site_name = COALESCE($1, site_name),
         support_email = COALESCE($2, support_email),

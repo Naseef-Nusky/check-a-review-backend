@@ -11,6 +11,7 @@ import {
 } from './media.service.js'
 import { assertBusinessAccess, assertBusinessOwner, getBusinessForUser } from './businessAccess.service.js'
 import { toApexDomain } from '../utils/businessPublicUrl.js'
+import { ensureBusinessSeoColumns } from '../utils/seoMeta.js'
 
 let statusColumnReady = false
 
@@ -117,6 +118,7 @@ export const businessService = {
 
   async getBySlugOrId(identifier, { includeUnpublished = false } = {}) {
     await ensureBusinessStatusColumn()
+    await ensureBusinessSeoColumns()
     try {
       const { ensureBusinessDomainsTable } = await import('./domain.service.js')
       await ensureBusinessDomainsTable()
