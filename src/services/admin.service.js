@@ -9,6 +9,10 @@ import {
   ensureBusinessSeoColumns,
   ensureSiteSeoColumns,
   normalizeSeoExtraTagsInput,
+  defaultBusinessSeoTitle,
+  defaultBusinessSeoDescription,
+  defaultBusinessSeoKeywords,
+  isAutoBusinessSeoTitle,
 } from '../utils/seoMeta.js'
 
 let crmRolesReady = false
@@ -404,6 +408,7 @@ export const adminService = {
 
   async createBusiness(data) {
     await ensureBusinessStatusColumn()
+    await ensureBusinessSeoColumns()
     const {
       name,
       email,
@@ -446,12 +451,32 @@ export const adminService = {
       [emailLower, passwordHash, name],
     )
 
+    const seoTitle = defaultBusinessSeoTitle(name)
+    const seoDescription = defaultBusinessSeoDescription(name, validatedCategory)
+    const seoKeywords = defaultBusinessSeoKeywords(name, validatedCategory)
+
     // Admin-created listings are approved immediately.
     const businessResult = await query(
-      `INSERT INTO businesses (user_id, name, slug, category, description, website, email, phone, address, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'published')
+      `INSERT INTO businesses (
+         user_id, name, slug, category, description, website, email, phone, address, status,
+         seo_title, seo_description, seo_keywords
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'published', $10, $11, $12)
        RETURNING id`,
-      [userResult.rows[0].id, name, slug, validatedCategory, description, website, emailLower, phone, address],
+      [
+        userResult.rows[0].id,
+        name,
+        slug,
+        validatedCategory,
+        description,
+        website,
+        emailLower,
+        phone,
+        address,
+        seoTitle,
+        seoDescription,
+        seoKeywords,
+      ],
     )
 
     const businessId = businessResult.rows[0].id
@@ -537,14 +562,18 @@ export const adminService = {
       Object.prototype.hasOwnProperty.call(data, 'seoExtraTags')
 
     const nextSeoTitle = hasSeoTitle
-      ? String(data.seo_title ?? data.seoTitle ?? '').trim() || null
-      : existing.seo_title ?? null
+      ? String(data.seo_title ?? data.seoTitle ?? '').trim() || defaultBusinessSeoTitle(name)
+      : isAutoBusinessSeoTitle(existing.seo_title, existing.name)
+        ? defaultBusinessSeoTitle(name)
+        : existing.seo_title || defaultBusinessSeoTitle(name)
     const nextSeoDescription = hasSeoDescription
-      ? String(data.seo_description ?? data.seoDescription ?? '').trim() || null
-      : existing.seo_description ?? null
+      ? String(data.seo_description ?? data.seoDescription ?? '').trim() ||
+        defaultBusinessSeoDescription(name, category)
+      : existing.seo_description || defaultBusinessSeoDescription(name, category)
     const nextSeoKeywords = hasSeoKeywords
-      ? String(data.seo_keywords ?? data.seoKeywords ?? '').trim() || null
-      : existing.seo_keywords ?? null
+      ? String(data.seo_keywords ?? data.seoKeywords ?? '').trim() ||
+        defaultBusinessSeoKeywords(name, category)
+      : existing.seo_keywords || defaultBusinessSeoKeywords(name, category)
     const nextSeoExtra = hasSeoExtra
       ? normalizeSeoExtraTagsInput(data.seo_extra_tags ?? data.seoExtraTags)
       : normalizeSeoExtraTagsInput(existing.seo_extra_tags)

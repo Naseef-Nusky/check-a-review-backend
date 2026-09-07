@@ -185,6 +185,13 @@ async function storePendingRegistration({
 async function createBusinessForUser(user, { category, website, phone, description }) {
   const { businessService } = await import('./business.service.js')
   await businessService.ensureBusinessStatusColumn()
+  const {
+    ensureBusinessSeoColumns,
+    defaultBusinessSeoTitle,
+    defaultBusinessSeoDescription,
+    defaultBusinessSeoKeywords,
+  } = await import('../utils/seoMeta.js')
+  await ensureBusinessSeoColumns()
 
   let businessCategory = 'General'
   if (category) {
@@ -212,9 +219,16 @@ async function createBusinessForUser(user, { category, website, phone, descripti
     .filter(Boolean)
     .join(', ')
 
+  const seoTitle = defaultBusinessSeoTitle(user.name)
+  const seoDescription = defaultBusinessSeoDescription(user.name, businessCategory)
+  const seoKeywords = defaultBusinessSeoKeywords(user.name, businessCategory)
+
   const bizResult = await query(
-    `INSERT INTO businesses (user_id, name, slug, category, email, website, phone, description, address, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') RETURNING *`,
+    `INSERT INTO businesses (
+       user_id, name, slug, category, email, website, phone, description, address, status,
+       seo_title, seo_description, seo_keywords
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, $11, $12) RETURNING *`,
     [
       user.id,
       user.name,
@@ -225,6 +239,9 @@ async function createBusinessForUser(user, { category, website, phone, descripti
       phone || null,
       description || null,
       fullAddress || null,
+      seoTitle,
+      seoDescription,
+      seoKeywords,
     ],
   )
   await query(`INSERT INTO subscriptions (business_id, plan) VALUES ($1, 'free')`, [
