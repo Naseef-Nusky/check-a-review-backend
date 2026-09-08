@@ -104,6 +104,89 @@ function buildJsonLd(business, reviews, pageUrl) {
 }
 
 export const prerenderService = {
+  async renderHomePage() {
+    const { ensureSiteSeoColumns } = await import('../utils/seoMeta.js')
+    await ensureSiteSeoColumns()
+    const { adminService } = await import('./admin.service.js')
+    const settings = await adminService.getSettings()
+
+    const origin = siteOrigin()
+    const title =
+      String(settings.seo_title || '').trim() ||
+      'Check A Review | Trusted customer reviews & business ratings'
+    const description =
+      String(settings.seo_description || '').trim() ||
+      'Check A Review (checkareview.com) — read verified customer reviews, compare business ratings, and find companies you can trust.'
+    const keywords =
+      String(settings.seo_keywords || '').trim() ||
+      'check a review, checkareview, check a review website, customer reviews, company reviews, business reviews'
+
+    const jsonLd = {
+      '@context': 'https://schema.org',
+      '@graph': [
+        {
+          '@type': 'Organization',
+          '@id': `${origin}/#organization`,
+          name: 'Check A Review',
+          alternateName: ['CheckAReview', 'Check a Review', 'checkareview.com'],
+          url: origin,
+          logo: `${origin}/logo-check-a-review.png`,
+        },
+        {
+          '@type': 'WebSite',
+          '@id': `${origin}/#website`,
+          name: 'Check A Review',
+          alternateName: ['CheckAReview', 'Check a Review', 'checkareview'],
+          url: origin,
+          description,
+          publisher: { '@id': `${origin}/#organization` },
+          potentialAction: {
+            '@type': 'SearchAction',
+            target: `${origin}/search?q={search_term_string}`,
+            'query-input': 'required name=search_term_string',
+          },
+        },
+      ],
+    }
+
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <meta name="description" content="${escapeHtml(description)}" />
+  <meta name="keywords" content="${escapeHtml(keywords)}" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="${escapeHtml(origin)}/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Check A Review" />
+  <meta property="og:title" content="${escapeHtml(title)}" />
+  <meta property="og:description" content="${escapeHtml(description)}" />
+  <meta property="og:url" content="${escapeHtml(origin)}/" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="${escapeHtml(title)}" />
+  <meta name="twitter:description" content="${escapeHtml(description)}" />
+  <script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f8fafc;color:#0f172a;line-height:1.5}
+    main{max-width:720px;margin:0 auto;padding:32px 16px 48px}
+    a{color:#db2777}
+    .cta{display:inline-block;margin-top:20px;background:#db2777;color:#fff;text-decoration:none;padding:10px 16px;border-radius:999px;font-weight:600}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Check A Review</h1>
+    <p><strong>checkareview.com</strong> — trusted customer reviews and business ratings.</p>
+    <p>${escapeHtml(description)}</p>
+    <p>Search for company reviews, business reviews, and verified customer feedback on Check A Review.</p>
+    <a class="cta" href="${escapeHtml(origin)}/search">Search reviews</a>
+  </main>
+</body>
+</html>`
+  },
+
   async renderBusinessPage(identifier) {
     const business = await businessService.getBySlugOrId(identifier)
     if (!business || business.status !== 'published') {
