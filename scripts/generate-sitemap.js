@@ -24,10 +24,11 @@ async function main() {
   const xml = await sitemapService.buildXml()
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
   fs.writeFileSync(outPath, xml, 'utf8')
-  const businessCount = (xml.match(/\/businesses\//g) || []).length
+  const businessCount =
+    (xml.match(/\/review\//g) || []).length + (xml.match(/\/businesses\//g) || []).length
   console.log(`Wrote ${outPath}`)
   console.log(`Sitemap origin: ${origin}`)
-  console.log(`Published business URLs: ${businessCount}`)
+  console.log(`Published business URLs: ${businessCount} (/review + /businesses fallbacks)`)
 }
 
 main()
