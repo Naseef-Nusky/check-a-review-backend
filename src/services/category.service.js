@@ -31,6 +31,25 @@ async function ensureCategoryTables() {
   `)
 }
 
+/** Ensure subcategory slug is globally unique (DB has UNIQUE(slug)). */
+async function uniqueSubCategorySlug(baseSlug, excludeId = null) {
+  const root = String(baseSlug || 'category').slice(0, 160) || 'category'
+  let candidate = root
+  let n = 2
+  while (n < 1000) {
+    const found = excludeId
+      ? await query(`SELECT id FROM sub_categories WHERE slug = $1 AND id <> $2 LIMIT 1`, [
+          candidate,
+          excludeId,
+        ])
+      : await query(`SELECT id FROM sub_categories WHERE slug = $1 LIMIT 1`, [candidate])
+    if (found.rows.length === 0) return candidate
+    candidate = `${root}-${n}`
+    n += 1
+  }
+  return `${root}-${Date.now()}`
+}
+
 async function buildCategoryTree() {
   await ensureCategoryTables()
 
@@ -149,16 +168,13 @@ export const categoryService = {
     const main = await query('SELECT id, name FROM main_categories WHERE id = $1', [mainCategoryId])
     if (main.rows.length === 0) throw new AppError('Main category not found', 404)
 
-    const slug = slugify(trimmed)
+    const slug = await uniqueSubCategorySlug(slugify(trimmed))
     const exists = await query(
       `SELECT id FROM sub_categories
        WHERE main_category_id = $1 AND LOWER(name) = LOWER($2)`,
       [mainCategoryId, trimmed],
     )
     if (exists.rows.length > 0) throw new AppError('Subcategory already exists in this main category', 409)
-
-    const slugExists = await query('SELECT id FROM sub_categories WHERE slug = $1', [slug])
-    if (slugExists.rows.length > 0) throw new AppError('Subcategory slug already exists', 409)
 
     const result = await query(
       `INSERT INTO sub_categories (main_category_id, name, slug)
@@ -232,7 +248,7 @@ export const categoryService = {
     const main = await query('SELECT id, name FROM main_categories WHERE id = $1', [nextMainId])
     if (main.rows.length === 0) throw new AppError('Main category not found', 404)
 
-    const slug = slugify(trimmed)
+    const slug = await uniqueSubCategorySlug(slugify(trimmed), id)
     const nameConflict = await query(
       `SELECT id FROM sub_categories
        WHERE main_category_id = $1 AND LOWER(name) = LOWER($2) AND id <> $3`,
@@ -241,12 +257,6 @@ export const categoryService = {
     if (nameConflict.rows.length > 0) {
       throw new AppError('Subcategory already exists in this main category', 409)
     }
-
-    const slugConflict = await query(
-      `SELECT id FROM sub_categories WHERE slug = $1 AND id <> $2`,
-      [slug, id],
-    )
-    if (slugConflict.rows.length > 0) throw new AppError('Subcategory slug already exists', 409)
 
     const result = await query(
       `UPDATE sub_categories

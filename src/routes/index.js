@@ -16,6 +16,7 @@ import {
   sendSitemap,
   sendBusinessSitemap,
   sendBusinessPrerender,
+  sendHomePrerender,
   sendIndexNowKey,
 } from './seo.routes.js'
 
@@ -27,6 +28,8 @@ router.get('/health', (_req, res) => {
 
 router.get('/sitemap.xml', sendSitemap)
 router.get('/business-sitemap.xml', sendBusinessSitemap)
+router.get('/prerender', sendHomePrerender)
+router.get('/prerender/home', sendHomePrerender)
 router.get('/prerender/review/:domain', sendBusinessPrerender)
 router.get('/prerender/businesses/:slug', sendBusinessPrerender)
 router.get('/:keyFile', (req, res, next) => {

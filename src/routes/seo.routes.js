@@ -34,6 +34,22 @@ export async function sendBusinessSitemap(_req, res, next) {
   }
 }
 
+export async function sendHomePrerender(_req, res, next) {
+  try {
+    const html = await prerenderService.renderHomePage()
+    res
+      .status(200)
+      .set({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+        'X-Robots-Tag': 'index, follow',
+      })
+      .send(html)
+  } catch (err) {
+    next(err)
+  }
+}
+
 export async function sendBusinessPrerender(req, res, next) {
   try {
     const identifier = req.params.domain || req.params.slug || req.params.identifier
@@ -73,6 +89,8 @@ export async function sendIndexNowKey(req, res, next) {
 
 router.get('/sitemap.xml', sendSitemap)
 router.get('/business-sitemap.xml', sendBusinessSitemap)
+router.get('/prerender', sendHomePrerender)
+router.get('/prerender/home', sendHomePrerender)
 router.get('/prerender/review/:domain', sendBusinessPrerender)
 router.get('/prerender/businesses/:slug', sendBusinessPrerender)
 router.get('/review/:domain', sendBusinessPrerender)

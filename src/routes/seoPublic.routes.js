@@ -12,13 +12,13 @@ router.get('/site', async (_req, res, next) => {
     res.json({
       success: true,
       data: {
-        title: settings.seo_title || 'Check A Review | Trusted customer reviews & business ratings',
+        title: settings.seo_title || 'Check A Review | checkareview.com — Trusted customer reviews',
         description:
           settings.seo_description ||
-          'Check A Review — read verified customer reviews, compare business ratings, and find companies you can trust.',
+          'Check A Review (checkareview.com) — read verified customer reviews, compare business ratings, and find companies you can trust.',
         keywords:
           settings.seo_keywords ||
-          'check a review, checkareview, customer reviews, company reviews, business reviews, check reviews',
+          'check a review, checkareview, check a review website, customer reviews, company reviews, business reviews, check reviews',
         extraTags: normalizeSeoExtraTagsInput(settings.seo_extra_tags),
         siteName: settings.site_name || 'Check A Review',
       },
