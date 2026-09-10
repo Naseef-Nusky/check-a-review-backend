@@ -13,9 +13,10 @@ async function start() {
     process.exit(1)
   }
 
-  app.listen(env.PORT, () => {
+  app.listen(env.PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${env.PORT}`)
     console.log(`API: http://localhost:${env.PORT}/api`)
+    console.log(`LAN: http://0.0.0.0:${env.PORT}/api`)
     console.log(`Environment: ${env.NODE_ENV}`)
   })
 

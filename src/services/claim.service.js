@@ -1,7 +1,11 @@
 import bcrypt from 'bcryptjs'
 import { query } from '../db/pool.js'
 import { AppError } from '../utils/helpers.js'
-import { createResetToken, hashSecret, assertStrongPassword } from '../utils/session.js'
+import {
+  createVerificationCode,
+  hashSecret,
+  assertStrongPassword,
+} from '../utils/session.js'
 import { ensureOwnerMembership, ensureBusinessMembersTable } from './businessAccess.service.js'
 import { emailService } from './email.service.js'
 import { notificationService } from './notification.service.js'
@@ -96,6 +100,13 @@ export async function ensureClaimTables() {
   `)
   await query(`
     CREATE INDEX IF NOT EXISTS business_claims_status_idx ON business_claims (status)
+  `)
+
+  // Only one open claim request per business at a time
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS business_claims_one_open_per_business
+    ON business_claims (business_id)
+    WHERE status IN ('pending', 'under_review', 'needs_info')
   `)
 
   // Do not auto-flip claimed=true here — that re-claims businesses after manual unclaim.
@@ -230,6 +241,49 @@ export const claimService = {
     )
   },
 
+  /**
+   * Public claim gate: claimed businesses or businesses with an open claim
+   * cannot accept another claim request.
+   */
+  async getClaimAvailability(businessIdOrSlug) {
+    await this.ensureReady()
+    const businessResult = await query(
+      `SELECT b.id, b.name, b.slug, b.claimed, b.status
+       FROM businesses b
+       WHERE (b.slug = $1 OR b.id::text = $1)`,
+      [businessIdOrSlug],
+    )
+    const business = businessResult.rows[0]
+    if (!business) throw new AppError('Business not found', 404)
+
+    const open = await query(
+      `SELECT id, email, status, created_at
+       FROM business_claims
+       WHERE business_id = $1 AND status IN ('pending', 'under_review', 'needs_info')
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [business.id],
+    )
+    const openClaim = open.rows[0] || null
+
+    return {
+      businessId: business.id,
+      businessName: business.name,
+      slug: business.slug,
+      claimed: Boolean(business.claimed),
+      claimInProgress: Boolean(openClaim),
+      canSubmitClaim:
+        business.status === 'published' && !business.claimed && !openClaim,
+      openClaim: openClaim
+        ? {
+            id: openClaim.id,
+            status: openClaim.status,
+            submittedAt: openClaim.created_at,
+          }
+        : null,
+    }
+  },
+
   async submitClaim(businessIdOrSlug, data = {}, files = []) {
     await this.ensureReady()
 
@@ -273,7 +327,10 @@ export const claimService = {
       [business.id],
     )
     if (openClaim.rows[0]) {
-      throw new AppError('A claim request is already in progress for this business', 400)
+      throw new AppError(
+        'Only one claim request is allowed per business at a time. A request is already in progress.',
+        409,
+      )
     }
 
     const emailOpen = await query(
@@ -287,33 +344,45 @@ export const claimService = {
     }
 
     const passwordHash = await bcrypt.hash(password, 12)
-    const token = createResetToken()
-    const tokenHash = hashSecret(token)
+    // 6-digit code (same pattern as signup) — works in mobile app and website link
+    const code = createVerificationCode()
+    const tokenHash = hashSecret(code)
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
 
     const hasOwnershipHints = /owner|director|founder|ceo|propriet/i.test(`${relationship} ${verificationInfo}`)
-    const result = await query(
-      `INSERT INTO business_claims
-        (business_id, full_name, email, phone, job_title, relationship, verification_info,
-         password_hash, status, email_verify_token_hash, email_verify_expires_at,
-         contact_status, ownership_status, identity_status, other_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10,
-               'pending', $11, 'pending', 'pending')
-       RETURNING *`,
-      [
-        business.id,
-        fullName,
-        email,
-        phone,
-        jobTitle,
-        relationship,
-        verificationInfo,
-        passwordHash,
-        tokenHash,
-        expiresAt,
-        hasOwnershipHints ? 'pending' : 'pending',
-      ],
-    )
+    let result
+    try {
+      result = await query(
+        `INSERT INTO business_claims
+          (business_id, full_name, email, phone, job_title, relationship, verification_info,
+           password_hash, status, email_verify_token_hash, email_verify_expires_at,
+           contact_status, ownership_status, identity_status, other_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10,
+                 'pending', $11, 'pending', 'pending')
+         RETURNING *`,
+        [
+          business.id,
+          fullName,
+          email,
+          phone,
+          jobTitle,
+          relationship,
+          verificationInfo,
+          passwordHash,
+          tokenHash,
+          expiresAt,
+          hasOwnershipHints ? 'pending' : 'pending',
+        ],
+      )
+    } catch (err) {
+      if (err?.code === '23505') {
+        throw new AppError(
+          'Only one claim request is allowed per business at a time. A request is already in progress.',
+          409,
+        )
+      }
+      throw err
+    }
 
     const claim = result.rows[0]
     await saveAttachments(claim.id, attachments)
@@ -326,8 +395,8 @@ export const claimService = {
       note: `${fullName} submitted a claim request${attachments.length ? ` with ${attachments.length} attachment(s)` : ''}`,
     })
 
-    const verifyUrl = `${publicSiteOrigin()}/claim/verify?token=${encodeURIComponent(token)}`
-    await emailService.sendClaimVerificationEmail(email, fullName, business.name, verifyUrl)
+    const verifyUrl = `${publicSiteOrigin()}/claim/verify?token=${encodeURIComponent(code)}`
+    await emailService.sendClaimVerificationEmail(email, fullName, business.name, verifyUrl, code)
 
     await notificationService.notifyCrmStaff(
       'New business claim request',
@@ -341,13 +410,15 @@ export const claimService = {
       status: claim.status,
       emailVerified: false,
       attachmentCount: attachments.length,
-      message: 'Claim request created. Please verify your email to continue.',
+      message: 'Claim request created. We sent a 6-digit verification code to your email.',
     }
   },
 
-  async verifyClaimEmail(token) {
+  async verifyClaimEmail(tokenOrCode) {
     await this.ensureReady()
-    const tokenHash = hashSecret(token)
+    const raw = String(tokenOrCode || '').trim()
+    if (!raw) throw new AppError('Enter the 6-digit verification code from your email', 400)
+    const tokenHash = hashSecret(raw)
     const result = await query(
       `SELECT c.*, b.name as business_name, b.slug as business_slug
        FROM business_claims c
@@ -356,7 +427,7 @@ export const claimService = {
       [tokenHash],
     )
     const claim = result.rows[0]
-    if (!claim) throw new AppError('Invalid or expired verification link', 400)
+    if (!claim) throw new AppError('Invalid or expired verification code', 400)
     if (claim.email_verified) {
       return {
         success: true,
@@ -366,7 +437,7 @@ export const claimService = {
       }
     }
     if (claim.email_verify_expires_at && new Date(claim.email_verify_expires_at) < new Date()) {
-      throw new AppError('This verification link has expired. Submit a new claim request.', 400)
+      throw new AppError('This verification code has expired. Request a new code or submit a new claim.', 400)
     }
     if (!['pending', 'under_review', 'needs_info'].includes(claim.status)) {
       throw new AppError('This claim can no longer be verified', 400)
@@ -402,6 +473,65 @@ export const claimService = {
       success: true,
       businessName: claim.business_name,
       status: claim.status === 'pending' ? 'under_review' : claim.status,
+    }
+  },
+
+  async resendClaimVerification(email, businessIdOrSlug) {
+    await this.ensureReady()
+    const normalizedEmail = String(email || '')
+      .trim()
+      .toLowerCase()
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      throw new AppError('A valid email is required', 400)
+    }
+
+    const params = [normalizedEmail]
+    let businessFilter = ''
+    if (businessIdOrSlug) {
+      params.push(String(businessIdOrSlug).trim())
+      businessFilter = `AND (b.slug = $${params.length} OR b.id::text = $${params.length})`
+    }
+
+    const result = await query(
+      `SELECT c.*, b.name as business_name, b.slug as business_slug
+       FROM business_claims c
+       JOIN businesses b ON b.id = c.business_id
+       WHERE LOWER(c.email) = $1
+         AND c.email_verified = false
+         AND c.status IN ('pending', 'under_review', 'needs_info')
+         ${businessFilter}
+       ORDER BY c.created_at DESC
+       LIMIT 1`,
+      params,
+    )
+    const claim = result.rows[0]
+    if (!claim) {
+      throw new AppError('No open claim found for this email that needs verification', 404)
+    }
+
+    const code = createVerificationCode()
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
+    await query(
+      `UPDATE business_claims
+       SET email_verify_token_hash = $1,
+           email_verify_expires_at = $2,
+           updated_at = NOW()
+       WHERE id = $3`,
+      [hashSecret(code), expiresAt, claim.id],
+    )
+
+    const verifyUrl = `${publicSiteOrigin()}/claim/verify?token=${encodeURIComponent(code)}`
+    await emailService.sendClaimVerificationEmail(
+      claim.email,
+      claim.full_name,
+      claim.business_name,
+      verifyUrl,
+      code,
+    )
+
+    return {
+      message: 'A new 6-digit verification code has been sent to your email',
+      businessName: claim.business_name,
     }
   },
 
@@ -925,6 +1055,70 @@ export const claimService = {
         email: newOwner.email || newOwner.user_email,
         name: newOwner.name,
       },
+    }
+  },
+
+  /**
+   * Mark a business as unclaimed so the public claim flow is available again.
+   * Keeps the current technical owner account (user_id) for CRM continuity,
+   * clears verification flags, and closes any open claim requests.
+   */
+  async unclaimBusiness(businessId, adminUserId = null, { note } = {}) {
+    await this.ensureReady()
+    const business = (await query(`SELECT * FROM businesses WHERE id = $1`, [businessId])).rows[0]
+    if (!business) throw new AppError('Business not found', 404)
+    if (!business.claimed) {
+      throw new AppError('This business is already unclaimed', 400)
+    }
+
+    const owner = (
+      await query(`SELECT id, email, name FROM users WHERE id = $1`, [business.user_id])
+    ).rows[0]
+
+    await query(
+      `UPDATE businesses
+       SET claimed = false,
+           claimed_at = NULL,
+           verified_contact = false,
+           verified_identity = false,
+           verified_ownership = false,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [businessId],
+    )
+
+    await query(
+      `UPDATE business_claims
+       SET status = 'rejected',
+           admin_notes = COALESCE($2, admin_notes),
+           reviewed_by = $3,
+           reviewed_at = NOW(),
+           updated_at = NOW()
+       WHERE business_id = $1
+         AND status IN ('pending', 'under_review', 'needs_info')`,
+      [
+        businessId,
+        note || 'Closed because admin unclaimed the business',
+        adminUserId,
+      ],
+    )
+
+    await recordHistory({
+      businessId,
+      eventType: 'unclaimed',
+      fromUserId: business.user_id,
+      fromEmail: owner?.email || null,
+      note: note || 'Business unclaimed by admin — open for public claim again',
+      performedBy: adminUserId,
+    })
+
+    return {
+      success: true,
+      claimed: false,
+      businessId,
+      previousOwner: owner
+        ? { id: owner.id, email: owner.email, name: owner.name }
+        : null,
     }
   },
 

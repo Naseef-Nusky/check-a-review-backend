@@ -76,12 +76,22 @@ export const businessService = {
     const total = parseInt(countResult.rows[0].count, 10)
 
     params.push(limit, offset)
+    // Stable ORDER BY (include b.id) so OFFSET pages don't skip/duplicate rows when ratings tie.
+    // Subscription plan via scalar subquery avoids multiplying rows if a business has multiple subscriptions.
     const result = await query(
-      `SELECT b.*, s.plan as subscription_plan
+      `SELECT b.*,
+              (
+                SELECT s.plan
+                FROM subscriptions s
+                WHERE s.business_id = b.id
+                ORDER BY s.updated_at DESC NULLS LAST
+                LIMIT 1
+              ) AS subscription_plan
        FROM businesses b
-       LEFT JOIN subscriptions s ON s.business_id = b.id
        ${where}
-       ORDER BY b.average_rating DESC, b.review_count DESC
+       ORDER BY b.average_rating DESC NULLS LAST,
+                b.review_count DESC NULLS LAST,
+                b.id ASC
        LIMIT $${idx} OFFSET $${idx + 1}`,
       params,
     )

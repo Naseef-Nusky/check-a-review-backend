@@ -25,7 +25,7 @@ export const env = {
   SQUARE_WEBHOOK_SIGNATURE_KEY: process.env.SQUARE_WEBHOOK_SIGNATURE_KEY || '',
   SQUARE_WEBHOOK_NOTIFICATION_URL:
     process.env.SQUARE_WEBHOOK_NOTIFICATION_URL ||
-    `http://localhost:${process.env.PORT || 5001}/api/subscriptions/webhook`,
+    `http://localhost:${process.env.PORT || 5000}/api/subscriptions/webhook`,
   SQUARE_STARTER_PLAN_ID: process.env.SQUARE_STARTER_PLAN_ID || '',
   SQUARE_PLUS_PLAN_ID: process.env.SQUARE_PLUS_PLAN_ID || '',
   SQUARE_PREMIUM_PLAN_ID: process.env.SQUARE_PREMIUM_PLAN_ID || '',

@@ -45,13 +45,56 @@ router.post(
   },
 )
 
+router.get('/businesses/:idOrSlug/availability', async (req, res, next) => {
+  try {
+    const data = await claimService.getClaimAvailability(req.params.idOrSlug)
+    res.json({ success: true, data })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.post(
   '/verify-email',
-  [body('token').trim().notEmpty().withMessage('Verification token is required')],
+  [
+    body('token')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Verification code is required'),
+    body('code')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Verification code is required'),
+  ],
   validate,
   async (req, res, next) => {
     try {
-      const result = await claimService.verifyClaimEmail(req.body.token)
+      const tokenOrCode = String(req.body.code || req.body.token || '').trim()
+      if (!tokenOrCode) {
+        throw new AppError('Enter the 6-digit verification code from your email', 400)
+      }
+      const result = await claimService.verifyClaimEmail(tokenOrCode)
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
+  '/resend-verification',
+  [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('businessId').optional().trim(),
+    body('businessSlug').optional().trim(),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const businessIdOrSlug = req.body.businessId || req.body.businessSlug || null
+      const result = await claimService.resendClaimVerification(req.body.email, businessIdOrSlug)
       res.json({ success: true, data: result })
     } catch (err) {
       next(err)
@@ -61,9 +104,9 @@ router.post(
 
 router.get('/verify-email', async (req, res, next) => {
   try {
-    const token = String(req.query.token || '').trim()
+    const token = String(req.query.token || req.query.code || '').trim()
     if (!token) {
-      res.status(400).json({ success: false, message: 'Verification token is required' })
+      res.status(400).json({ success: false, message: 'Verification code is required' })
       return
     }
     const result = await claimService.verifyClaimEmail(token)

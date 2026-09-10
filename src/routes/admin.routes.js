@@ -789,6 +789,18 @@ router.post('/businesses/:id/change-owner', async (req, res, next) => {
   }
 })
 
+router.post('/businesses/:id/unclaim', async (req, res, next) => {
+  try {
+    const { claimService } = await import('../services/claim.service.js')
+    const result = await claimService.unclaimBusiness(req.params.id, req.user.id, {
+      note: req.body?.note,
+    })
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/businesses/:id/ownership-history', async (req, res, next) => {
   try {
     const { claimService } = await import('../services/claim.service.js')

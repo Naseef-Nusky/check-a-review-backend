@@ -3,14 +3,18 @@ import { authenticate, authorize } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
 import { businessService } from '../services/business.service.js'
 import { aiReviewSummaryService } from '../services/aiReviewSummary.service.js'
-import { paginate, AppError } from '../utils/helpers.js'
+import { AppError } from '../utils/helpers.js'
 import { logoUploadMemory } from '../middleware/upload.js'
 
 const router = Router()
 
 router.get('/search', async (req, res, next) => {
   try {
-    const { page, limit, offset } = paginate(req.query)
+    // Allow up to 1000 so clients can load the full published catalog in fewer pages.
+    // Keep ordering stable via business.service.search (includes b.id).
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+    const limit = Math.min(1000, Math.max(1, parseInt(String(req.query.limit || '20'), 10) || 20))
+    const offset = (page - 1) * limit
     const result = await businessService.search({
       q: req.query.q,
       category: req.query.category,

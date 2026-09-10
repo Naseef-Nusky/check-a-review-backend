@@ -361,6 +361,41 @@ export const billingPlansService = {
     return mapPlan(result.rows[0])
   },
 
+  /**
+   * Ensure Square still has the stored plan variation. Stale IDs (deleted catalog
+   * objects / wrong sandbox app) cause "Catalog object with ID … not found".
+   */
+  async ensureSynced(planKey) {
+    await ensureBillingPlansTable()
+    const plan = await this.getByKey(planKey)
+    if (!plan.active) throw new AppError(`Plan "${planKey}" is inactive`, 400)
+
+    const hasIds = Boolean(plan.squarePlanId && plan.squareVariationId)
+    if (hasIds) {
+      const variationOk = await squareService.catalogObjectExists(plan.squareVariationId)
+      if (variationOk) return plan
+
+      const planOk = await squareService.catalogObjectExists(plan.squarePlanId)
+      if (!planOk) {
+        await query(
+          `UPDATE billing_plans
+           SET square_plan_id = NULL, square_variation_id = NULL, updated_at = NOW()
+           WHERE plan_key = $1`,
+          [planKey],
+        )
+      } else {
+        await query(
+          `UPDATE billing_plans
+           SET square_variation_id = NULL, updated_at = NOW()
+           WHERE plan_key = $1`,
+          [planKey],
+        )
+      }
+    }
+
+    return this.syncToSquare(planKey)
+  },
+
   async syncAllToSquare() {
     const out = []
     for (const key of PAID_SQUARE_PLANS) {

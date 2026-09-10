@@ -678,18 +678,34 @@ export const emailService = {
     })
   },
 
-  async sendClaimVerificationEmail(to, name, businessName, verifyUrl) {
+  async sendClaimVerificationEmail(to, name, businessName, verifyUrl, code) {
     const APP_NAME = await appName()
+    const codeText = String(code || '').trim()
     await sendTemplatedEmail({
       to,
-      subject: `Verify your email to claim ${businessName}`,
+      subject: codeText
+        ? `Your code to claim ${businessName}`
+        : `Verify your email to claim ${businessName}`,
       template: {
         eyebrow: `${APP_NAME} · Claim business`,
         title: 'Verify your email',
         intro: `Hi ${escapeHtml(name)}, thanks for requesting to claim <strong>${escapeHtml(businessName)}</strong>.`,
-        body: 'Confirm your email address so our team can review your claim. Your claim stays pending until this step is complete.',
-        primaryCta: { label: 'Verify email', href: verifyUrl },
-        footerNote: 'This verification link expires in 48 hours.',
+        body: codeText
+          ? 'Enter this 6-digit code in the app (or on the website) so our team can review your claim.'
+          : 'Confirm your email address so our team can review your claim. Your claim stays pending until this step is complete.',
+        stats: codeText ? [{ value: escapeHtml(codeText), label: 'Verification code' }] : undefined,
+        sections: codeText
+          ? [
+              sectionCard({
+                title: 'Code details',
+                body: `Your 6-digit code is <strong style="font-size:20px;letter-spacing:4px;color:${SLATE};">${escapeHtml(codeText)}</strong>. It expires in 48 hours.`,
+              }),
+            ]
+          : undefined,
+        primaryCta: { label: 'Verify email on website', href: verifyUrl },
+        footerNote: codeText
+          ? 'Prefer the website? Use the button above. This code expires in 48 hours.'
+          : 'This verification link expires in 48 hours.',
       },
     })
   },

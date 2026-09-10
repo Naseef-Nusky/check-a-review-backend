@@ -220,20 +220,8 @@ export const subscriptionService = {
       throw new AppError('Square billing is not configured yet. Add Square sandbox keys to .env.', 503)
     }
 
-    const planRow = await billingPlansService.getByKey(plan)
-    if (!planRow.active) throw new AppError(`Plan "${plan}" is inactive`, 400)
-    if (!planRow.squarePlanId) {
-      throw new AppError(
-        `Plan "${plan}" is not synced to Square yet. Open CRM → Billing plans and click Sync.`,
-        400,
-      )
-    }
-    if (!planRow.squareVariationId) {
-      throw new AppError(
-        `Plan "${plan}" must be re-synced for monthly billing. CRM → Billing plans → Sync to Square.`,
-        400,
-      )
-    }
+    // Re-sync if Square catalog IDs are missing or deleted (common after sandbox reset)
+    const planRow = await billingPlansService.ensureSynced(plan)
 
     await assertBusinessOwner(businessId, userId)
     const business = await query(
@@ -256,20 +244,47 @@ export const subscriptionService = {
 
     let amountCents = await monthlyChargeForBusiness(planRow)
 
-    const link = await squareService.createCheckoutLink({
-      customerId,
-      plan,
-      planConfig: {
-        planId: planRow.squarePlanId,
-        variationId: planRow.squareVariationId,
-        amountCents,
-        currency: planRow.currency,
-        name: planRow.name,
-      },
-      businessId,
-      email: business.rows[0].email,
-      successUrl: `${env.BUSINESS_PORTAL_URL}/subscription?checkout=success`,
-    })
+    let link
+    try {
+      link = await squareService.createCheckoutLink({
+        customerId,
+        plan,
+        planConfig: {
+          planId: planRow.squarePlanId,
+          variationId: planRow.squareVariationId,
+          amountCents,
+          currency: planRow.currency,
+          name: planRow.name,
+        },
+        businessId,
+        email: business.rows[0].email,
+        successUrl: `${env.BUSINESS_PORTAL_URL}/subscription?checkout=success`,
+      })
+    } catch (err) {
+      if (!/catalog object|out of date/i.test(err?.message || '')) throw err
+      await query(
+        `UPDATE billing_plans
+         SET square_plan_id = NULL, square_variation_id = NULL, updated_at = NOW()
+         WHERE plan_key = $1`,
+        [plan],
+      )
+      const repaired = await billingPlansService.ensureSynced(plan)
+      amountCents = await monthlyChargeForBusiness(repaired)
+      link = await squareService.createCheckoutLink({
+        customerId,
+        plan,
+        planConfig: {
+          planId: repaired.squarePlanId,
+          variationId: repaired.squareVariationId,
+          amountCents,
+          currency: repaired.currency,
+          name: repaired.name,
+        },
+        businessId,
+        email: business.rows[0].email,
+        successUrl: `${env.BUSINESS_PORTAL_URL}/subscription?checkout=success`,
+      })
+    }
 
     const trialDays = Number(planRow.trialDays || planRow.trial_days || 0)
     const expectedEnd = addMonths(addDays(new Date(), trialDays), 1)
@@ -311,14 +326,7 @@ export const subscriptionService = {
     }
     if (!sourceId) throw new AppError('Card token is required', 400)
 
-    const planRow = await billingPlansService.getByKey(plan)
-    if (!planRow.active) throw new AppError(`Plan "${plan}" is inactive`, 400)
-    if (!planRow.squareVariationId) {
-      throw new AppError(
-        `Plan "${plan}" must be synced to Square for monthly billing. Open CRM → Billing plans → Sync to Square (all plans).`,
-        400,
-      )
-    }
+    const planRow = await billingPlansService.ensureSynced(plan)
 
     await assertBusinessOwner(businessId, userId)
     const business = await query(
@@ -342,14 +350,35 @@ export const subscriptionService = {
 
     const amountCents = await monthlyChargeForBusiness(planRow)
 
-    const created = await squareService.createCardSubscription({
-      customerId,
-      sourceId,
-      verificationToken,
-      planVariationId: planRow.squareVariationId,
-      businessId,
-      plan,
-    })
+    let created
+    try {
+      created = await squareService.createCardSubscription({
+        customerId,
+        sourceId,
+        verificationToken,
+        planVariationId: planRow.squareVariationId,
+        businessId,
+        plan,
+      })
+    } catch (err) {
+      if (!/catalog object with id/i.test(err?.message || '')) throw err
+      // Stale variation slipped through — force a fresh Square catalog sync and retry once
+      await query(
+        `UPDATE billing_plans
+         SET square_variation_id = NULL, updated_at = NOW()
+         WHERE plan_key = $1`,
+        [plan],
+      )
+      const repaired = await billingPlansService.ensureSynced(plan)
+      created = await squareService.createCardSubscription({
+        customerId,
+        sourceId,
+        verificationToken,
+        planVariationId: repaired.squareVariationId,
+        businessId,
+        plan,
+      })
+    }
 
     if (previousSubscriptionId && previousSubscriptionId !== created.subscriptionId) {
       try {

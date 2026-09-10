@@ -146,6 +146,26 @@ export async function getBusinessForUser(userId) {
      LIMIT 1`,
     [userId],
   )
-  if (!member.rows[0]) throw new AppError('Business not found', 404)
-  return member.rows[0]
+  if (member.rows[0]) return member.rows[0]
+
+  const disabled = await query(
+    `SELECT b.name, m.status
+     FROM business_members m
+     JOIN businesses b ON b.id = m.business_id
+     WHERE m.user_id = $1 AND m.status = 'disabled'
+     ORDER BY m.updated_at DESC
+     LIMIT 1`,
+    [userId],
+  )
+  if (disabled.rows[0]) {
+    throw new AppError(
+      `Your access to ${disabled.rows[0].name} is disabled. Ask the business owner to reactivate you, or sign in with the owner account.`,
+      403,
+    )
+  }
+
+  throw new AppError(
+    'No business is linked to this account yet. Sign in with the owner email, or finish business registration.',
+    404,
+  )
 }

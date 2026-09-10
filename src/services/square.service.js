@@ -236,6 +236,22 @@ export const squareService = {
     return { planId, variationId }
   },
 
+  async catalogObjectExists(objectId) {
+    if (!objectId || !client) return false
+    try {
+      const res = await client.catalog.object.get({ objectId })
+      return Boolean(res.object?.id) && res.object?.isDeleted !== true
+    } catch {
+      return false
+    }
+  },
+
+  isCatalogNotFoundError(err) {
+    const detail = String(squareErrorMessage(err, '') || '')
+    const code = err?.errors?.[0]?.code || err?.body?.errors?.[0]?.code
+    return code === 'NOT_FOUND' || /catalog object with id/i.test(detail)
+  },
+
   async createCheckoutLink({
     customerId,
     plan,
@@ -253,6 +269,12 @@ export const squareService = {
         400,
       )
     }
+    if (!config?.variationId) {
+      throw new AppError(
+        `Square plan "${plan}" is missing a plan variation. CRM → Billing plans → Sync to Square.`,
+        400,
+      )
+    }
 
     const buyerEmail = squareCheckoutEmail(email)
     const payload = {
@@ -267,7 +289,8 @@ export const squareService = {
         locationId: env.SQUARE_LOCATION_ID,
       },
       checkoutOptions: {
-        subscriptionPlanId: config.variationId || config.planId,
+        // Square Payment Links expect the SUBSCRIPTION_PLAN_VARIATION id here
+        subscriptionPlanId: config.variationId,
         redirectUrl: successUrl,
       },
       paymentNote: JSON.stringify({ businessId, plan, customerId }),
@@ -281,6 +304,12 @@ export const squareService = {
     try {
       response = await client.checkout.paymentLinks.create(payload)
     } catch (err) {
+      if (this.isCatalogNotFoundError(err)) {
+        throw new AppError(
+          `Square catalog is out of date for plan "${plan}" (missing ${config.variationId}). Re-sync billing plans in CRM, then try again.`,
+          409,
+        )
+      }
       wrapSquareError(err, 'Failed to create Square checkout link')
     }
 

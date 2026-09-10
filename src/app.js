@@ -44,10 +44,14 @@ app.use(cors({
     if (!origin) return callback(null, true)
     if (allowed.includes(origin)) return callback(null, true)
 
-    // In development, allow any localhost Vite port (5173+ fallbacks like 5176).
+    // In development, allow local web + Expo Metro ports.
     if (
       env.NODE_ENV === 'development' &&
-      /^http:\/\/(localhost|127\.0\.0\.1):\d+$/i.test(origin)
+      (
+        /^http:\/\/(localhost|127\.0\.0\.1):\d+$/i.test(origin) ||
+        /^http:\/\/192\.168\.\d+\.\d+:\d+$/i.test(origin) ||
+        /^exp:\/\//i.test(origin)
+      )
     ) {
       return callback(null, true)
     }
