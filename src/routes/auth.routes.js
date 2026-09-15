@@ -64,6 +64,25 @@ router.post(
 )
 
 router.post(
+  '/apple',
+  authLimiter,
+  [body('identityToken').notEmpty().withMessage('Apple identity token is required')],
+  validate,
+  async (req, res, next) => {
+    try {
+      const result = await authService.loginWithApple({
+        identityToken: req.body.identityToken,
+        email: req.body.email,
+        fullName: req.body.fullName,
+      })
+      res.json({ success: true, data: result })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post(
   '/verify-email',
   verifyLimiter,
   [

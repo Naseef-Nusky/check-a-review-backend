@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { OAuth2Client } from 'google-auth-library'
@@ -51,9 +52,69 @@ function signToken(user) {
   )
 }
 
+const APPLE_ISSUER = 'https://appleid.apple.com'
+const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys'
+const DEFAULT_APPLE_AUDIENCES = ['com.checkareview.mobile', 'host.exp.Exponent']
+let appleJwksCache = { keys: [], fetchedAt: 0 }
+
+function appleAudiences() {
+  const extra = String(env.APPLE_CLIENT_ID || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  return [...new Set([...extra, ...DEFAULT_APPLE_AUDIENCES])]
+}
+
+async function getApplePublicKey(kid) {
+  const stale = Date.now() - appleJwksCache.fetchedAt > 60 * 60 * 1000
+  if (!appleJwksCache.keys.length || stale) {
+    const response = await fetch(APPLE_JWKS_URL)
+    if (!response.ok) throw new AppError('Could not verify Apple sign-in', 503)
+    const body = await response.json()
+    appleJwksCache = { keys: body.keys || [], fetchedAt: Date.now() }
+  }
+  let jwk = appleJwksCache.keys.find((key) => key.kid === kid)
+  if (!jwk) {
+    const response = await fetch(APPLE_JWKS_URL)
+    if (!response.ok) throw new AppError('Could not verify Apple sign-in', 503)
+    const body = await response.json()
+    appleJwksCache = { keys: body.keys || [], fetchedAt: Date.now() }
+    jwk = appleJwksCache.keys.find((key) => key.kid === kid)
+  }
+  if (!jwk) throw new AppError('Invalid Apple sign-in token', 401)
+  return crypto.createPublicKey({ key: jwk, format: 'jwk' })
+}
+
+async function verifyAppleIdentityToken(identityToken) {
+  const decoded = jwt.decode(identityToken, { complete: true })
+  if (!decoded?.header?.kid) {
+    throw new AppError('Invalid Apple sign-in token', 401)
+  }
+  const key = await getApplePublicKey(decoded.header.kid)
+  try {
+    return jwt.verify(identityToken, key, {
+      algorithms: ['RS256'],
+      issuer: APPLE_ISSUER,
+      audience: appleAudiences(),
+    })
+  } catch {
+    throw new AppError('Invalid Apple sign-in token', 401)
+  }
+}
+
+function formatClientFullName(fullName) {
+  if (!fullName) return ''
+  if (typeof fullName === 'string') return fullName.trim()
+  return [fullName.givenName, fullName.familyName, fullName.firstName, fullName.lastName]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+}
+
 async function ensureGoogleAuthColumns() {
   await query('ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL')
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255)')
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_id VARCHAR(255)')
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT')
   await query(`
     DO $$
@@ -62,6 +123,11 @@ async function ensureGoogleAuthColumns() {
         SELECT 1 FROM pg_constraint WHERE conname = 'users_google_id_key'
       ) THEN
         ALTER TABLE users ADD CONSTRAINT users_google_id_key UNIQUE (google_id);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'users_apple_id_key'
+      ) THEN
+        ALTER TABLE users ADD CONSTRAINT users_apple_id_key UNIQUE (apple_id);
       END IF;
     END $$;
   `)
@@ -452,6 +518,80 @@ export const authService = {
     return { user: omitPassword(user), token }
   },
 
+  async loginWithApple({ identityToken, email: clientEmail, fullName } = {}) {
+    if (!identityToken) throw new AppError('Apple identity token is required', 400)
+
+    await readyGoogleColumns()
+    await readyAccountSeparation()
+
+    const payload = await verifyAppleIdentityToken(identityToken)
+    const appleId = payload.sub
+    if (!appleId) throw new AppError('Invalid Apple sign-in token', 401)
+
+    const tokenEmail = String(payload.email || '').trim().toLowerCase()
+    const email = tokenEmail || String(clientEmail || '').trim().toLowerCase()
+    const nameFromClient = formatClientFullName(fullName)
+    const name = nameFromClient || (email ? email.split('@')[0] : 'Apple user')
+
+    let existing = await query('SELECT * FROM users WHERE apple_id = $1 LIMIT 1', [appleId])
+    let user = existing.rows[0]
+
+    if (!user && email) {
+      existing = await query(
+        `SELECT * FROM users WHERE email = $1 AND role = 'customer' LIMIT 1`,
+        [email],
+      )
+      user = existing.rows[0]
+    }
+
+    if (user) {
+      if (user.role !== 'customer') {
+        throw new AppError('Please use email login for this account type', 403)
+      }
+      if (!user.apple_id) {
+        await query(
+          `UPDATE users SET apple_id = $1, email_verified = TRUE, updated_at = NOW() WHERE id = $2`,
+          [appleId, user.id],
+        )
+        user = { ...user, apple_id: appleId, email_verified: true }
+      } else if (user.apple_id !== appleId) {
+        throw new AppError('This email is already linked to a different Apple ID', 409)
+      }
+    } else {
+      if (!email) {
+        throw new AppError(
+          'Apple did not share an email address. Share your email with Check A Review, or continue with email sign-in.',
+          400,
+        )
+      }
+      const created = await query(
+        `INSERT INTO users (email, password_hash, apple_id, name, role, email_verified)
+         VALUES ($1, NULL, $2, $3, 'customer', TRUE)
+         RETURNING *`,
+        [email, appleId, name],
+      )
+      user = created.rows[0]
+      await query('DELETE FROM pending_registrations WHERE email = $1 AND role = $2', [
+        email,
+        'customer',
+      ])
+    }
+
+    if (
+      nameFromClient &&
+      (!user.name || user.name === 'Apple user' || (email && user.name === email.split('@')[0]))
+    ) {
+      const updated = await query(
+        `UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+        [nameFromClient, user.id],
+      )
+      user = updated.rows[0]
+    }
+
+    const token = signToken(user)
+    return { user: omitPassword(user), token }
+  },
+
   async verifyEmail({ email, code, role }) {
     await readyAccountSeparation()
     const normalizedEmail = String(email || '').trim().toLowerCase()
@@ -716,8 +856,9 @@ export const authService = {
       [userId],
     )
     if (existing.rows.length === 0) throw new AppError('User not found', 404)
-    if (existing.rows[0].role !== 'customer') {
-      throw new AppError('Only customer accounts can be deleted here', 403)
+    const role = String(existing.rows[0].role || '')
+    if (role === 'admin' || role === 'super_admin' || role === 'viewer') {
+      throw new AppError('This account cannot be deleted here', 403)
     }
     await query('DELETE FROM users WHERE id = $1', [userId])
     return { message: 'Your account has been deleted' }
