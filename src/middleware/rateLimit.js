@@ -32,3 +32,9 @@ export const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 12 })
 export const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 8 })
 export const verifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15 })
 export const forgotLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 })
+/** Public contact / sales forms — keep tight to stop inbox flooding */
+export const contactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: 'Too many contact requests. Please try again later.',
+})

@@ -55,6 +55,15 @@ export function validateSimpleContactBody(body) {
 
   if (!subject) push('subject', 'Subject is required')
   else if (subject.length > 200) push('subject', 'Subject must be 200 characters or fewer')
+  // Reject single-token gibberish subjects bots use (e.g. tqOlvNLGWSMfDpfJhmrSqK)
+  else if (subject.length >= 8 && !/\s/.test(subject) && /^[A-Za-z0-9_-]+$/.test(subject)) {
+    const hasDigit = /\d/.test(subject)
+    const hasLower = /[a-z]/.test(subject)
+    const hasUpper = /[A-Z]/.test(subject)
+    if ((hasDigit && (hasLower || hasUpper)) || (hasLower && hasUpper && subject.length >= 10)) {
+      push('subject', 'Please enter a clearer subject')
+    }
+  }
 
   if (!message) push('message', 'Message is required')
   else if (message.length < 10) push('message', 'Message must be at least 10 characters')

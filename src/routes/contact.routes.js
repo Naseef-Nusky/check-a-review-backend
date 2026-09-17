@@ -4,18 +4,24 @@ import {
   validateContactFormBody,
   validateSimpleContactBody,
 } from '../utils/contactForm.validation.js'
+import { isContactSpam } from '../utils/contactSpam.js'
 import { AppError } from '../utils/helpers.js'
 import { emailService } from '../services/email.service.js'
+import { contactLimiter } from '../middleware/rateLimit.js'
 
 const router = Router()
 
-router.post('/', async (req, res, next) => {
+const OK_MESSAGE = 'Thank you for contacting us. We will get back to you shortly.'
+
+function silentOk(res) {
+  res.json({ success: true, message: OK_MESSAGE })
+}
+
+router.post('/', contactLimiter, async (req, res, next) => {
   try {
-    if (String(req.body.poweredBy || '').trim()) {
-      res.json({
-        success: true,
-        message: 'Thank you for contacting us. We will get back to you shortly.',
-      })
+    // Honeypot / gibberish / too-fast submit — pretend success, do not email
+    if (isContactSpam(req.body)) {
+      silentOk(res)
       return
     }
 
@@ -29,7 +35,7 @@ router.post('/', async (req, res, next) => {
 
       res.json({
         success: true,
-        message: 'Thank you for contacting us. We will get back to you shortly.',
+        message: OK_MESSAGE,
         data: payload,
       })
       return
@@ -40,11 +46,17 @@ router.post('/', async (req, res, next) => {
       throw new AppError(errors.map((entry) => entry.message).join(', '), 400)
     }
 
+    // Extra subject check after normalize (bots often only spam this field)
+    if (isContactSpam({ subject: payload.subject, name: payload.name, message: payload.message })) {
+      silentOk(res)
+      return
+    }
+
     await emailService.sendContactForm(payload)
 
     res.json({
       success: true,
-      message: 'Thank you for contacting us. We will get back to you shortly.',
+      message: OK_MESSAGE,
       data: payload,
     })
   } catch (err) {
