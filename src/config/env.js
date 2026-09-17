@@ -44,6 +44,8 @@ export const env = {
   ADMIN_PASSWORD:
     process.env.ADMIN_PASSWORD || (process.env.NODE_ENV === 'production' ? '' : 'SuperAdmin@123'),
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+  // Sign in with Apple audiences: iOS bundle ID, Expo Go, and optional web Services ID
+  APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID || 'com.checkareview.mobile,host.exp.Exponent',
   // IndexNow key (Bing/Yandex auto URL notify). Must match public file: /{INDEXNOW_KEY}.txt
   INDEXNOW_KEY: process.env.INDEXNOW_KEY || 'car-indexnow-8f2c4a91e6b03d75',
 }
