@@ -166,6 +166,19 @@ CREATE TABLE IF NOT EXISTS reviews (
   UNIQUE (business_id, user_id)
 );
 
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS helpful_count INTEGER NOT NULL DEFAULT 0;
+
+-- One sticky "Helpful" vote per visitor (or logged-in user) per review — not removable
+CREATE TABLE IF NOT EXISTS review_helpful_votes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  review_id UUID NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+  voter_key VARCHAR(128) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (review_id, voter_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_helpful_votes_review_id ON review_helpful_votes(review_id);
+
 -- Review invitations
 CREATE TABLE IF NOT EXISTS review_invitations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -2,12 +2,39 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '../db/pool.js'
 import { env } from '../config/env.js'
 import { AppError, paginate } from '../utils/helpers.js'
+import { hashSecret } from '../utils/session.js'
 import { aiModerationService } from './aiModeration.service.js'
 import { emailService } from './email.service.js'
 import { businessService } from './business.service.js'
 import { notificationService } from './notification.service.js'
 import { assertBusinessAccess } from './businessAccess.service.js'
 import { assertCanReplyToReviews, assertInvitationQuota } from './planEntitlements.service.js'
+
+let helpfulVotesReady = false
+
+async function ensureHelpfulVotesTable() {
+  if (helpfulVotesReady) return
+  await query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS helpful_count INTEGER NOT NULL DEFAULT 0`)
+  await query(`
+    CREATE TABLE IF NOT EXISTS review_helpful_votes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      review_id UUID NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+      voter_key VARCHAR(128) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (review_id, voter_key)
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_review_helpful_votes_review_id ON review_helpful_votes(review_id)`)
+  helpfulVotesReady = true
+}
+
+export function buildHelpfulVoterKey({ userId, ip, userAgent, visitorId }) {
+  if (userId) return `user:${userId}`
+  const raw = [String(visitorId || '').trim(), String(ip || ''), String(userAgent || '')]
+    .filter(Boolean)
+    .join('|')
+  return `anon:${hashSecret(raw || 'unknown')}`
+}
 
 async function getBusinessOwner(businessId) {
   const owner = await query(
@@ -342,9 +369,11 @@ export const reviewService = {
   },
 
   async getByBusiness(businessId, queryParams) {
+    await ensureHelpfulVotesTable()
     const { page, limit, offset } = paginate(queryParams)
     const result = await query(
-      `SELECT r.*, u.name as author_name, u.avatar_url as author_avatar
+      `SELECT r.*, u.name as author_name, u.avatar_url as author_avatar,
+              COALESCE(r.helpful_count, 0) AS helpful_count
        FROM reviews r JOIN users u ON u.id = r.user_id
        WHERE r.business_id = $1 AND r.status = 'published'
        ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`,
@@ -502,5 +531,51 @@ export const reviewService = {
       [businessId],
     )
     return result.rows
+  },
+
+  /**
+   * Sticky Helpful vote — once recorded for a voter, it cannot be removed.
+   * Returns { helpfulCount, markedHelpful, alreadyMarked }.
+   */
+  async markHelpful(reviewId, voterKey) {
+    await ensureHelpfulVotesTable()
+    if (!voterKey) throw new AppError('Unable to record helpful vote', 400)
+
+    const existing = await query('SELECT id, helpful_count, status FROM reviews WHERE id = $1', [reviewId])
+    if (existing.rows.length === 0) throw new AppError('Review not found', 404)
+
+    const review = existing.rows[0]
+    if (review.status !== 'published') {
+      throw new AppError('Only published reviews can be marked helpful', 400)
+    }
+
+    const inserted = await query(
+      `INSERT INTO review_helpful_votes (review_id, voter_key)
+       VALUES ($1, $2)
+       ON CONFLICT (review_id, voter_key) DO NOTHING
+       RETURNING id`,
+      [reviewId, voterKey],
+    )
+
+    if (inserted.rows.length > 0) {
+      const updated = await query(
+        `UPDATE reviews
+         SET helpful_count = COALESCE(helpful_count, 0) + 1, updated_at = NOW()
+         WHERE id = $1
+         RETURNING helpful_count`,
+        [reviewId],
+      )
+      return {
+        helpfulCount: Number(updated.rows[0].helpful_count) || 0,
+        markedHelpful: true,
+        alreadyMarked: false,
+      }
+    }
+
+    return {
+      helpfulCount: Number(review.helpful_count) || 0,
+      markedHelpful: true,
+      alreadyMarked: true,
+    }
   },
 }

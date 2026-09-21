@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import { body } from 'express-validator'
 import { validate } from '../middleware/validate.js'
-import { authenticate, authorize } from '../middleware/auth.js'
-import { reviewService } from '../services/review.service.js'
+import { authenticate, authorize, optionalAuth } from '../middleware/auth.js'
+import { reviewService, buildHelpfulVoterKey } from '../services/review.service.js'
 import { query } from '../db/pool.js'
 import { notificationService } from '../services/notification.service.js'
 
@@ -139,6 +139,22 @@ router.post(
     }
   },
 )
+
+// ── Sticky Helpful votes ────────────────────────────────────────────────────
+router.post('/:id/helpful', optionalAuth, async (req, res, next) => {
+  try {
+    const voterKey = buildHelpfulVoterKey({
+      userId: req.user?.id,
+      ip: req.ip || req.socket?.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      visitorId: req.headers['x-visitor-id'] || req.body?.visitorId,
+    })
+    const result = await reviewService.markHelpful(req.params.id, voterKey)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    next(err)
+  }
+})
 
 // ── Review Reports ─────────────────────────────────────────────────────────
 router.post(
