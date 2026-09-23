@@ -834,25 +834,30 @@ export const claimService = {
     const business = await query(`SELECT id, user_id, claimed FROM businesses WHERE id = $1`, [businessId])
     if (!business.rows[0]) throw new AppError('Business not found', 404)
 
-    await ensureOwnerMembership(
-      businessId,
-      business.rows[0].user_id,
-      (
-        await query(`SELECT email FROM users WHERE id = $1`, [business.rows[0].user_id])
-      ).rows[0]?.email || 'owner@unknown.local',
-    )
+    const ownerId = business.rows[0].user_id
+    if (ownerId) {
+      const ownerEmail =
+        (
+          await query(`SELECT email FROM users WHERE id = $1`, [ownerId])
+        ).rows[0]?.email || 'owner@unknown.local'
+      await ensureOwnerMembership(businessId, ownerId, ownerEmail)
+    }
 
     const result = await query(
       `SELECT m.id, m.business_id, m.user_id, m.email, m.role, m.status,
               m.invited_at, m.accepted_at, m.created_at,
               u.name, u.email_verified, u.phone,
-              (b.user_id = m.user_id) as is_primary_owner
+              (b.user_id IS NOT NULL AND b.user_id = m.user_id) as is_primary_owner
        FROM business_members m
        LEFT JOIN users u ON u.id = m.user_id
        JOIN businesses b ON b.id = m.business_id
        WHERE m.business_id = $1
        ORDER BY
-         CASE WHEN b.user_id = m.user_id THEN 0 WHEN m.role = 'owner' THEN 1 ELSE 2 END,
+         CASE
+           WHEN b.user_id IS NOT NULL AND b.user_id = m.user_id THEN 0
+           WHEN m.role = 'owner' THEN 1
+           ELSE 2
+         END,
          m.created_at ASC`,
       [businessId],
     )

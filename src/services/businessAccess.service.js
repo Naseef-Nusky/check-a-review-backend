@@ -53,16 +53,46 @@ export async function ensureBusinessMembersTable() {
 
 export async function ensureOwnerMembership(businessId, userId, email) {
   await ensureBusinessMembersTable()
+  if (!businessId || !userId) return
+
+  // If this user is already a member (possibly under a different email), promote that row.
+  // Avoid inserting a second active row for the same user_id (unique index).
+  const byUser = await query(
+    `SELECT id
+     FROM business_members
+     WHERE business_id = $1 AND user_id = $2
+     ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at ASC
+     LIMIT 1`,
+    [businessId, userId],
+  )
+
+  if (byUser.rows[0]) {
+    await query(
+      `UPDATE business_members
+       SET role = 'owner',
+           status = 'active',
+           accepted_at = COALESCE(accepted_at, NOW()),
+           updated_at = NOW()
+       WHERE id = $1`,
+      [byUser.rows[0].id],
+    )
+    return
+  }
+
+  const normalizedEmail = String(email || '')
+    .trim()
+    .toLowerCase() || 'owner@unknown.local'
+
   await query(
     `INSERT INTO business_members (business_id, user_id, email, role, status, accepted_at)
-     VALUES ($1, $2, LOWER($3), 'owner', 'active', NOW())
+     VALUES ($1, $2, $3, 'owner', 'active', NOW())
      ON CONFLICT (business_id, email) DO UPDATE
        SET user_id = EXCLUDED.user_id,
            role = 'owner',
            status = 'active',
            accepted_at = COALESCE(business_members.accepted_at, NOW()),
            updated_at = NOW()`,
-    [businessId, userId, email],
+    [businessId, userId, normalizedEmail],
   )
 }
 
