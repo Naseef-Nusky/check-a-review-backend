@@ -474,6 +474,24 @@ export const emailService = {
     })
   },
 
+  async sendBusinessReplyRejectedEmail(to, businessName, note) {
+    const reason = String(note || '').trim()
+    await sendTemplatedEmail({
+      to,
+      subject: `Your reply on ${businessName} was removed`,
+      template: {
+        eyebrow: 'Reply moderation',
+        title: 'A public reply was removed',
+        intro: `A public reply on <strong>${escapeHtml(businessName)}</strong> was removed by Check A Review moderators.`,
+        body: reason
+          ? `Reason: ${escapeHtml(reason)}`
+          : 'Please review our guidelines and post a new reply if needed.',
+        primaryCta: { label: 'Open reviews', href: `${env.BUSINESS_PORTAL_URL}/reviews` },
+        footerNote: 'You are receiving this because a reply on your business listing was moderated.',
+      },
+    })
+  },
+
   async sendNewReviewNotification(to, businessName, rating) {
     await sendTemplatedEmail({
       to,

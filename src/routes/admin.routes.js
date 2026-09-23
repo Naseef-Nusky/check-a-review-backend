@@ -413,6 +413,24 @@ router.post(
   },
 )
 
+router.patch(
+  '/reviews/:id',
+  [
+    body('rating').optional().isInt({ min: 1, max: 5 }).withMessage('Rating must be 1-5'),
+    body('title').optional().trim().notEmpty().withMessage('Title is required'),
+    body('content').optional().trim().isLength({ min: 10 }).withMessage('Content must be at least 10 characters'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const review = await adminService.updateReview(req.params.id, req.body)
+      res.json({ success: true, data: review })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 router.get('/reviews/flagged', async (_req, res, next) => {
   try {
     const reviews = await reviewService.getFlagged()
@@ -467,6 +485,34 @@ router.patch(
     }
   },
 )
+
+router.patch(
+  '/reviews/:id/reply',
+  [
+    body('reply').trim().notEmpty().withMessage('Reply text is required'),
+    body('reply').isLength({ max: 5000 }).withMessage('Reply must be 5000 characters or fewer'),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const review = await reviewService.adminUpdateBusinessReply(req.params.id, req.body.reply)
+      res.json({ success: true, data: review })
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+router.post('/reviews/:id/reply/reject', async (req, res, next) => {
+  try {
+    const review = await reviewService.adminRejectBusinessReply(req.params.id, {
+      note: req.body?.note,
+    })
+    res.json({ success: true, data: review })
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.get('/subscriptions', async (_req, res, next) => {
   try {

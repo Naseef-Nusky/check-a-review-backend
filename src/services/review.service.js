@@ -428,6 +428,87 @@ export const reviewService = {
     return result.rows[0]
   },
 
+  async adminUpdateBusinessReply(reviewId, replyText) {
+    const text = String(replyText || '').trim()
+    if (!text) throw new AppError('Reply text is required', 400)
+    if (text.length > 5000) throw new AppError('Reply must be 5000 characters or fewer', 400)
+
+    const existing = await query(
+      `SELECT r.id, r.business_reply, b.name as business_name
+       FROM reviews r
+       JOIN businesses b ON b.id = r.business_id
+       WHERE r.id = $1`,
+      [reviewId],
+    )
+    if (existing.rows.length === 0) throw new AppError('Review not found', 404)
+    if (!existing.rows[0].business_reply) {
+      throw new AppError('This review has no business reply to edit', 400)
+    }
+
+    const result = await query(
+      `UPDATE reviews
+       SET business_reply = $1,
+           business_reply_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [text, reviewId],
+    )
+    return result.rows[0]
+  },
+
+  async adminRejectBusinessReply(reviewId, { note } = {}) {
+    const existing = await query(
+      `SELECT r.id, r.business_reply, r.business_id, b.name as business_name, b.user_id as owner_id
+       FROM reviews r
+       JOIN businesses b ON b.id = r.business_id
+       WHERE r.id = $1`,
+      [reviewId],
+    )
+    if (existing.rows.length === 0) throw new AppError('Review not found', 404)
+    if (!existing.rows[0].business_reply) {
+      throw new AppError('This review has no business reply to reject', 400)
+    }
+
+    const row = existing.rows[0]
+    const result = await query(
+      `UPDATE reviews
+       SET business_reply = NULL,
+           business_reply_at = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [reviewId],
+    )
+
+    if (row.owner_id) {
+      const reason = String(note || '').trim()
+      await notificationService.create(
+        row.owner_id,
+        'Reply removed',
+        reason
+          ? `Your public reply on ${row.business_name} was removed by moderators: ${reason}`
+          : `Your public reply on ${row.business_name} was removed by moderators.`,
+        'business_reply_rejected',
+      )
+
+      const owner = await query('SELECT email FROM users WHERE id = $1', [row.owner_id])
+      if (owner.rows[0]?.email) {
+        try {
+          await emailService.sendBusinessReplyRejectedEmail(
+            owner.rows[0].email,
+            row.business_name,
+            reason,
+          )
+        } catch (err) {
+          console.error('Business reply rejected email failed:', err.message)
+        }
+      }
+    }
+
+    return result.rows[0]
+  },
+
   async moderate(reviewId, status) {
     const before = await query('SELECT * FROM reviews WHERE id = $1', [reviewId])
     if (before.rows.length === 0) throw new AppError('Review not found', 404)

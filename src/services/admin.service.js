@@ -739,6 +739,67 @@ export const adminService = {
     }
   },
 
+  async updateReview(id, { rating, title, content }) {
+    const existing = await query(
+      `SELECT r.*,
+              u.name as author_name,
+              u.email as author_email,
+              b.name as business_name,
+              b.slug as business_slug
+       FROM reviews r
+       JOIN users u ON u.id = r.user_id
+       JOIN businesses b ON b.id = r.business_id
+       WHERE r.id = $1`,
+      [id],
+    )
+    if (existing.rows.length === 0) throw new AppError('Review not found', 404)
+
+    const current = existing.rows[0]
+    const nextRating =
+      rating === undefined || rating === null || rating === ''
+        ? Number(current.rating)
+        : Number(rating)
+    if (!Number.isInteger(nextRating) || nextRating < 1 || nextRating > 5) {
+      throw new AppError('Rating must be an integer from 1 to 5', 400)
+    }
+
+    const nextTitle = String(title ?? current.title ?? '').trim()
+    const nextContent = String(content ?? current.content ?? '').trim()
+    if (!nextTitle) throw new AppError('Title is required', 400)
+    if (nextTitle.length > 255) throw new AppError('Title must be 255 characters or fewer', 400)
+    if (nextContent.length < 10) {
+      throw new AppError('Review content must be at least 10 characters', 400)
+    }
+    if (nextContent.length > 10000) {
+      throw new AppError('Review content must be 10000 characters or fewer', 400)
+    }
+
+    const updated = await query(
+      `UPDATE reviews
+       SET rating = $1,
+           title = $2,
+           content = $3,
+           updated_at = NOW()
+       WHERE id = $4
+       RETURNING *`,
+      [nextRating, nextTitle, nextContent, id],
+    )
+
+    if (Number(current.rating) !== nextRating || current.status === 'published') {
+      await businessService.updateBusinessStats(current.business_id)
+    }
+
+    const review = updated.rows[0]
+    return {
+      ...review,
+      author_name: current.author_name,
+      author_email: current.author_email,
+      business_name: current.business_name,
+      business_id: current.business_id,
+      business_slug: current.business_slug,
+    }
+  },
+
   async getReviewById(id) {
     const result = await query(
       `SELECT r.*,
