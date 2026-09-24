@@ -434,16 +434,16 @@ export const reviewService = {
     if (text.length > 5000) throw new AppError('Reply must be 5000 characters or fewer', 400)
 
     const existing = await query(
-      `SELECT r.id, r.business_reply, b.name as business_name
+      `SELECT r.id, r.user_id, r.business_reply, b.name as business_name
        FROM reviews r
        JOIN businesses b ON b.id = r.business_id
        WHERE r.id = $1`,
       [reviewId],
     )
     if (existing.rows.length === 0) throw new AppError('Review not found', 404)
-    if (!existing.rows[0].business_reply) {
-      throw new AppError('This review has no business reply to edit', 400)
-    }
+
+    const row = existing.rows[0]
+    const isNew = !row.business_reply
 
     const result = await query(
       `UPDATE reviews
@@ -454,6 +454,28 @@ export const reviewService = {
        RETURNING *`,
       [text, reviewId],
     )
+
+    // Notify customer when CRM posts the first public reply
+    if (isNew && row.user_id) {
+      try {
+        const reviewer = await query('SELECT email FROM users WHERE id = $1', [row.user_id])
+        if (reviewer.rows[0]?.email) {
+          await emailService.sendBusinessReplyNotification(
+            reviewer.rows[0].email,
+            row.business_name,
+          )
+        }
+        await notificationService.create(
+          row.user_id,
+          'Business Reply',
+          `${row.business_name} replied to your review.`,
+          'business_reply',
+        )
+      } catch (err) {
+        console.error('CRM business reply customer notify failed:', err.message)
+      }
+    }
+
     return result.rows[0]
   },
 
@@ -483,25 +505,26 @@ export const reviewService = {
 
     if (row.owner_id) {
       const reason = String(note || '').trim()
-      await notificationService.create(
-        row.owner_id,
-        'Reply removed',
-        reason
-          ? `Your public reply on ${row.business_name} was removed by moderators: ${reason}`
-          : `Your public reply on ${row.business_name} was removed by moderators.`,
-        'business_reply_rejected',
-      )
+      // Only notify the business when CRM provides a reason
+      if (reason) {
+        await notificationService.create(
+          row.owner_id,
+          'Reply removed',
+          `Your public reply on ${row.business_name} was removed by moderators: ${reason}`,
+          'business_reply_rejected',
+        )
 
-      const owner = await query('SELECT email FROM users WHERE id = $1', [row.owner_id])
-      if (owner.rows[0]?.email) {
-        try {
-          await emailService.sendBusinessReplyRejectedEmail(
-            owner.rows[0].email,
-            row.business_name,
-            reason,
-          )
-        } catch (err) {
-          console.error('Business reply rejected email failed:', err.message)
+        const owner = await query('SELECT email FROM users WHERE id = $1', [row.owner_id])
+        if (owner.rows[0]?.email) {
+          try {
+            await emailService.sendBusinessReplyRejectedEmail(
+              owner.rows[0].email,
+              row.business_name,
+              reason,
+            )
+          } catch (err) {
+            console.error('Business reply rejected email failed:', err.message)
+          }
         }
       }
     }
