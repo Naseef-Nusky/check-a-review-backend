@@ -352,7 +352,12 @@ export const reviewService = {
     const result = await query(
       `SELECT r.*, u.name as author_name, u.avatar_url as author_avatar,
               b.id as business_id, b.name as business_name, b.slug as business_slug,
-              b.category as business_category, b.website as business_website, b.logo_url as business_logo
+              b.category as business_category, b.website as business_website, b.logo_url as business_logo,
+              (
+                SELECT COUNT(*)::int
+                FROM reviews ar
+                WHERE ar.user_id = r.user_id AND ar.status = 'published'
+              ) AS author_review_count
        FROM reviews r
        JOIN users u ON u.id = r.user_id
        JOIN businesses b ON b.id = r.business_id
@@ -373,7 +378,12 @@ export const reviewService = {
     const { page, limit, offset } = paginate(queryParams)
     const result = await query(
       `SELECT r.*, u.name as author_name, u.avatar_url as author_avatar,
-              COALESCE(r.helpful_count, 0) AS helpful_count
+              COALESCE(r.helpful_count, 0) AS helpful_count,
+              (
+                SELECT COUNT(*)::int
+                FROM reviews ar
+                WHERE ar.user_id = r.user_id AND ar.status = 'published'
+              ) AS author_review_count
        FROM reviews r JOIN users u ON u.id = r.user_id
        WHERE r.business_id = $1 AND r.status = 'published'
        ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`,
