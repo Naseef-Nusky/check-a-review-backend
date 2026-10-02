@@ -375,21 +375,33 @@ export const reviewService = {
 
   async getByBusiness(businessId, queryParams) {
     await ensureHelpfulVotesTable()
-    const { page, limit, offset } = paginate(queryParams)
-    const result = await query(
-      `SELECT r.*, u.name as author_name, u.avatar_url as author_avatar,
-              COALESCE(r.helpful_count, 0) AS helpful_count,
-              (
-                SELECT COUNT(*)::int
-                FROM reviews ar
-                WHERE ar.user_id = r.user_id AND ar.status = 'published'
-              ) AS author_review_count
-       FROM reviews r JOIN users u ON u.id = r.user_id
-       WHERE r.business_id = $1 AND r.status = 'published'
-       ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`,
-      [businessId, limit, offset],
-    )
-    return { reviews: result.rows, page, limit }
+    // Profile pages filter/search client-side, so allow a higher cap than the default paginate max (100).
+    const page = Math.max(1, parseInt(queryParams?.page || '1', 10) || 1)
+    const requestedLimit = parseInt(queryParams?.limit || '20', 10)
+    const limit = Math.min(1000, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 20))
+    const offset = (page - 1) * limit
+    const [result, countResult] = await Promise.all([
+      query(
+        `SELECT r.*, u.name as author_name, u.avatar_url as author_avatar,
+                COALESCE(r.helpful_count, 0) AS helpful_count,
+                (
+                  SELECT COUNT(*)::int
+                  FROM reviews ar
+                  WHERE ar.user_id = r.user_id AND ar.status = 'published'
+                ) AS author_review_count
+         FROM reviews r JOIN users u ON u.id = r.user_id
+         WHERE r.business_id = $1 AND r.status = 'published'
+         ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`,
+        [businessId, limit, offset],
+      ),
+      query(
+        `SELECT COUNT(*)::int AS count FROM reviews
+         WHERE business_id = $1 AND status = 'published'`,
+        [businessId],
+      ),
+    ])
+    const total = Number(countResult.rows[0]?.count || 0)
+    return { reviews: result.rows, total, page, limit }
   },
 
   async getByUser(userId) {
