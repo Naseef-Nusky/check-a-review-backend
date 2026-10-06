@@ -199,7 +199,7 @@ export const adminService = {
     await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
     await query(`
       ALTER TABLE users ADD CONSTRAINT users_role_check
-      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer', 'business_adder'))
     `)
     // Promote the seeded admin account to super_admin (existing installs)
     const { env } = await import('../config/env.js')
@@ -218,12 +218,13 @@ export const adminService = {
     const result = await query(
       `SELECT id, name, email, role, email_verified, created_at, updated_at
        FROM users
-       WHERE role IN ('super_admin', 'admin', 'viewer')
+       WHERE role IN ('super_admin', 'admin', 'viewer', 'business_adder')
        ORDER BY
          CASE role
            WHEN 'super_admin' THEN 0
            WHEN 'admin' THEN 1
-           ELSE 2
+           WHEN 'business_adder' THEN 2
+           ELSE 3
          END,
          created_at ASC`,
     )
@@ -232,12 +233,12 @@ export const adminService = {
 
   async createStaff({ name, email, password, role }) {
     await this.ensureCrmRoleConstraint()
-    if (!['admin', 'viewer'].includes(role)) {
-      throw new AppError('Role must be admin or viewer', 400)
+    if (!['admin', 'viewer', 'business_adder'].includes(role)) {
+      throw new AppError('Role must be admin, viewer, or business_adder', 400)
     }
 
     const existing = await query(
-      `SELECT id FROM users WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')`,
+      `SELECT id FROM users WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')`,
       [email.toLowerCase()],
     )
     if (existing.rows.length > 0) {
@@ -258,7 +259,7 @@ export const adminService = {
     await this.ensureCrmRoleConstraint()
 
     const existing = await query(
-      `SELECT * FROM users WHERE id = $1 AND role IN ('super_admin', 'admin', 'viewer')`,
+      `SELECT * FROM users WHERE id = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')`,
       [id],
     )
     if (existing.rows.length === 0) throw new AppError('CRM user not found', 404)
@@ -270,15 +271,15 @@ export const adminService = {
     if (id === actorId) {
       throw new AppError('You cannot change your own CRM role or password from this screen', 400)
     }
-    if (role && !['admin', 'viewer'].includes(role)) {
-      throw new AppError('Role must be admin or viewer', 400)
+    if (role && !['admin', 'viewer', 'business_adder'].includes(role)) {
+      throw new AppError('Role must be admin, viewer, or business_adder', 400)
     }
 
     let nextEmail = null
     if (email && email.toLowerCase() !== staff.email) {
       const taken = await query(
         `SELECT id FROM users
-         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer') AND id <> $2`,
+         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder') AND id <> $2`,
         [email.toLowerCase(), id],
       )
       if (taken.rows.length > 0) throw new AppError('Email already registered', 409)
@@ -311,7 +312,7 @@ export const adminService = {
     if (id === actorId) throw new AppError('You cannot delete your own account', 400)
 
     const existing = await query(
-      `SELECT * FROM users WHERE id = $1 AND role IN ('super_admin', 'admin', 'viewer')`,
+      `SELECT * FROM users WHERE id = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')`,
       [id],
     )
     if (existing.rows.length === 0) throw new AppError('CRM user not found', 404)
@@ -406,9 +407,11 @@ export const adminService = {
     return categoryService.syncBusinessCategories()
   },
 
-  async createBusiness(data) {
+  async createBusiness(data, { markClaimed = true } = {}) {
     await ensureBusinessStatusColumn()
     await ensureBusinessSeoColumns()
+    await query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS claimed BOOLEAN NOT NULL DEFAULT false`)
+    await query(`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`)
     const {
       name,
       email,
@@ -459,9 +462,9 @@ export const adminService = {
     const businessResult = await query(
       `INSERT INTO businesses (
          user_id, name, slug, category, description, website, email, phone, address, status,
-         seo_title, seo_description, seo_keywords
+         seo_title, seo_description, seo_keywords, claimed
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'published', $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'published', $10, $11, $12, $13)
        RETURNING id`,
       [
         userResult.rows[0].id,
@@ -476,6 +479,7 @@ export const adminService = {
         seoTitle,
         seoDescription,
         seoKeywords,
+        Boolean(markClaimed),
       ],
     )
 
@@ -495,11 +499,13 @@ export const adminService = {
     )
 
     const created = result.rows[0]
-    try {
-      const { claimService } = await import('./claim.service.js')
-      await claimService.markBusinessClaimed(businessId)
-    } catch (err) {
-      console.error('mark claimed failed:', err.message)
+    if (markClaimed) {
+      try {
+        const { claimService } = await import('./claim.service.js')
+        await claimService.markBusinessClaimed(businessId)
+      } catch (err) {
+        console.error('mark claimed failed:', err.message)
+      }
     }
     try {
       const { searchIndexService } = await import('./searchIndex.service.js')

@@ -29,10 +29,10 @@ async function seed() {
     await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
     await query(`
       ALTER TABLE users ADD CONSTRAINT users_role_check
-      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer', 'business_adder'))
     `)
     const taken = await query(
-      `SELECT id FROM users WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')`,
+      `SELECT id FROM users WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')`,
       [env.ADMIN_EMAIL],
     )
     if (taken.rows.length === 0) {
@@ -48,7 +48,7 @@ async function seed() {
 
   const adminExists = await query(
     `SELECT id, role FROM users
-     WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')
+     WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')
      LIMIT 1`,
     [env.ADMIN_EMAIL],
   )
@@ -57,7 +57,7 @@ async function seed() {
     await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
     await query(`
       ALTER TABLE users ADD CONSTRAINT users_role_check
-      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer', 'business_adder'))
     `)
     await query(
       `INSERT INTO users (email, password_hash, name, role, email_verified)
@@ -69,7 +69,7 @@ async function seed() {
     await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
     await query(`
       ALTER TABLE users ADD CONSTRAINT users_role_check
-      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'))
+      CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer', 'business_adder'))
     `)
     await query(
       `UPDATE users SET role = 'super_admin', name = 'Super Admin', updated_at = NOW()

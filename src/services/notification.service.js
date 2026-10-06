@@ -23,7 +23,7 @@ export const notificationService = {
   async notifyCrmStaff(title, message, type, link = null) {
     await ensureLinkColumn()
     const staff = await query(
-      `SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'viewer')`,
+      `SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'viewer', 'business_adder')`,
     )
     if (staff.rows.length === 0) return []
 

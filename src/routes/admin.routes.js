@@ -94,7 +94,7 @@ router.post(
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Valid email required'),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-    body('role').isIn(['admin', 'viewer']).withMessage('Role must be admin or viewer'),
+    body('role').isIn(['admin', 'viewer', 'business_adder']).withMessage('Role must be admin, viewer, or business adder'),
   ],
   validate,
   async (req, res, next) => {
@@ -114,7 +114,7 @@ router.patch(
     body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Name cannot be empty'),
     body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email required'),
     body('password').optional({ checkFalsy: true }).isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-    body('role').optional().isIn(['admin', 'viewer']).withMessage('Role must be admin or viewer'),
+    body('role').optional().isIn(['admin', 'viewer', 'business_adder']).withMessage('Role must be admin, viewer, or business adder'),
   ],
   validate,
   async (req, res, next) => {
@@ -343,7 +343,10 @@ router.post(
   validate,
   async (req, res, next) => {
     try {
-      const business = await adminService.createBusiness(req.body)
+      // Business Adder creates listings as unclaimed so owners can claim publicly.
+      // Admin / Super Admin still create claimed listings.
+      const markClaimed = req.user?.role !== 'business_adder'
+      const business = await adminService.createBusiness(req.body, { markClaimed })
       res.json({ success: true, data: business })
     } catch (err) {
       next(err)

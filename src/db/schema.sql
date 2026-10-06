@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255),
   google_id VARCHAR(255) UNIQUE,
   name VARCHAR(255) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer', 'business_adder')),
   bio TEXT,
   avatar_url TEXT,
   email_verified BOOLEAN DEFAULT FALSE,
@@ -372,10 +372,10 @@ BEGIN
   END IF;
 END $$;
 
--- Existing DBs: CRM roles (super_admin, admin, viewer)
+-- Existing DBs: CRM roles (super_admin, admin, viewer, business_adder)
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check
-  CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer'));
+  CHECK (role IN ('customer', 'business', 'admin', 'super_admin', 'viewer', 'business_adder'));
 
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON businesses(slug);
 CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses(category);

@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
 import { query } from '../db/pool.js'
 import { AppError } from '../utils/helpers.js'
-import { isCrmRole, isSuperAdmin } from '../utils/roles.js'
+import { isCrmRole, isSuperAdmin, canCrmWrite, canCrmCreateBusiness } from '../utils/roles.js'
 import { ensureTokenVersionColumn } from '../utils/session.js'
 
 async function loadActiveUser(decoded) {
@@ -82,7 +82,7 @@ export async function syncCrmRole(req, _res, next) {
   }
 }
 
-/** CRM login roles: super_admin, admin, viewer */
+/** CRM login roles: super_admin, admin, viewer, business_adder */
 export function authorizeCrm(req, _res, next) {
   if (!req.user || !isCrmRole(req.user.role)) {
     return next(new AppError('Access denied', 403))
@@ -98,10 +98,39 @@ export function requireSuperAdmin(req, _res, next) {
   next()
 }
 
-/** Viewers can read CRM data but cannot create/update/delete */
+function normalizeAdminPath(req) {
+  return String(req.path || '').replace(/\/+$/, '') || '/'
+}
+
+/** True for create-business (and optional logo right after create). */
+function isAllowedBusinessAdderWrite(req) {
+  if (!canCrmCreateBusiness(req.user?.role) || canCrmWrite(req.user?.role)) return false
+  const path = normalizeAdminPath(req)
+  if (req.method === 'POST' && path === '/businesses') return true
+  // Allow logo upload as part of the add-business flow
+  if (req.method === 'POST' && /^\/businesses\/[^/]+\/logo$/.test(path)) return true
+  return false
+}
+
+/**
+ * Viewers: read-only.
+ * Business adders: may create businesses (+ logo), everything else read-only.
+ */
 export function denyViewerWrites(req, _res, next) {
-  if (req.user?.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next()
+
+  const role = req.user?.role
+  if (role === 'viewer') {
     return next(new AppError('Viewers have read-only access', 403))
+  }
+  if (role === 'business_adder') {
+    if (isAllowedBusinessAdderWrite(req)) return next()
+    return next(
+      new AppError(
+        'Business adder accounts can add businesses but cannot edit details, claims, or other CRM data',
+        403,
+      ),
+    )
   }
   next()
 }

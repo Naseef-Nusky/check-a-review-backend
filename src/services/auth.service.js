@@ -393,11 +393,12 @@ export const authService = {
     } else {
       const result = await query(
         `SELECT * FROM users
-         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')
+         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')
          ORDER BY CASE role
            WHEN 'super_admin' THEN 0
            WHEN 'admin' THEN 1
-           ELSE 2
+           WHEN 'business_adder' THEN 2
+           ELSE 3
          END
          LIMIT 1`,
         [emailLower],
@@ -731,8 +732,8 @@ export const authService = {
     if (role === 'crm') {
       const result = await query(
         `SELECT id FROM users
-         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer')
-         ORDER BY CASE role WHEN 'super_admin' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END
+         WHERE email = $1 AND role IN ('super_admin', 'admin', 'viewer', 'business_adder')
+         ORDER BY CASE role WHEN 'super_admin' THEN 0 WHEN 'admin' THEN 1 WHEN 'business_adder' THEN 2 ELSE 3 END
          LIMIT 1`,
         [emailLower],
       )
@@ -857,7 +858,7 @@ export const authService = {
     )
     if (existing.rows.length === 0) throw new AppError('User not found', 404)
     const role = String(existing.rows[0].role || '')
-    if (role === 'admin' || role === 'super_admin' || role === 'viewer') {
+    if (role === 'admin' || role === 'super_admin' || role === 'viewer' || role === 'business_adder') {
       throw new AppError('This account cannot be deleted here', 403)
     }
     await query('DELETE FROM users WHERE id = $1', [userId])
