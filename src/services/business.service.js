@@ -62,7 +62,7 @@ export const businessService = {
     let idx = 1
 
     if (q) {
-      where += ` AND b.name ILIKE $${idx}`
+      where += ` AND (b.name ILIKE $${idx} OR COALESCE(b.website, '') ILIKE $${idx})`
       params.push(`%${String(q).trim()}%`)
       idx++
     }
