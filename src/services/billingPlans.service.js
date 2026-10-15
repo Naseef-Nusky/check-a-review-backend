@@ -168,10 +168,11 @@ function formatCurrencyAmount(cents, currency) {
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
       currency: code,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format((Number(cents) || 0) / 100)
   } catch {
-    return `${code} ${((Number(cents) || 0) / 100).toFixed(0)}`
+    return `${code} ${((Number(cents) || 0) / 100).toFixed(2)}`
   }
 }
 
