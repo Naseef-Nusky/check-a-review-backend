@@ -1,4 +1,4 @@
-export const CATALOG_VERSION = 15
+export const CATALOG_VERSION = 16
 export const UNLIMITED = Number.POSITIVE_INFINITY
 
 export const ASSIGNABLE_PLANS = ['free', 'starter', 'plus', 'premium']
@@ -90,16 +90,17 @@ export const PLAN_CATALOG = {
     checkout: 'free',
     canReplyToReviews: true,
     invitationsPerMonth: 0,
-    widgets: 0,
+    widgets: 1,
     users: 1,
     domains: 1,
     integrations: 0,
     marketingAssets: false,
     ctaLabel: 'Current plan',
-    description: 'Default plan after signup. Reply to reviews and upgrade for invitations, widgets, and higher limits.',
+    description: 'Default plan after signup. Reply to reviews, embed 1 widget, and upgrade for invitations and higher limits.',
     features: [
       'Public business profile (after approval)',
       'Read and reply to customer reviews',
+      '1 website widget',
       '1 user',
       '1 domain',
     ],

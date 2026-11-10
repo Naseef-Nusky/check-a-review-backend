@@ -257,7 +257,7 @@ export async function assertWidgetAccess(businessId, widgetId) {
   if (!plan.widgets) {
     const { AppError } = await import('../utils/helpers.js')
     throw new AppError(
-      'Widgets are included from Starter. Upgrade to embed Check A Review on your website.',
+      'Widgets are not included on your current plan. Upgrade to embed Check A Review on your website.',
       403,
       'WIDGET_PLAN',
     )

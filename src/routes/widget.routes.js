@@ -262,7 +262,7 @@ router.get('/:businessId/status', async (req, res, next) => {
             ? 'Add at least one domain before embedding the review widget.'
             : entitlements.limits.widgets
               ? 'Widget can be embedded on your registered domains.'
-              : 'Upgrade to Starter or higher to embed widgets.',
+              : 'Upgrade your plan to embed widgets.',
       },
     })
   } catch (err) {
